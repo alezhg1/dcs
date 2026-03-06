@@ -1,19 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::net::{UdpSocket, TcpStream, TcpListener};
+use std::net::{UdpSocket, TcpListener};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
-use std::io::{Read, Write};
+use std::io::Read;
+use std::collections::{HashMap, HashSet};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use socket2::{Socket, Domain, Type, Protocol};
 use sodiumoxide::crypto::secretbox;
 use chrono::Local;
+use std::fs::File;
+use std::io::BufReader;
+use sha2::{Sha256, Digest};
 
 const DISCOVERY_PORT: u16 = 5000;
-const CHAT_PORT: u16 = 5001;
-const AUDIO_PORT: u16 = 5002;
+const DATA_PORT: u16 = 5001;
+const MAX_TTL: u8 = 5;
+const CHUNK_SIZE: usize = 4096;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PeerInfo {
@@ -21,6 +26,7 @@ pub struct PeerInfo {
     pub name: String,
     pub ip: String,
     pub port: u16,
+    pub last_seen: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -30,12 +36,33 @@ pub struct Message {
     pub sender_name: String,
     pub content: String,
     pub timestamp: String,
+    pub is_file: bool,
+    pub file_name: Option<String>,
+    pub file_size: Option<u64>,
+    pub progress: f32,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Packet {
-    Hello(PeerInfo),
-    Chat(Vec<u8>),
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum PacketType {
+    Hello,
+    Chat(String),
+    FileChunk { filename: String, total_size: u64, chunk_index: u64, data: Vec<u8>, hash: String },
+    FileAck { filename: String, chunk_index: u64 },
+    Audio(Vec<u8>),
+    Ack(String),
+    Ping,
+    Pong,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MeshPacket {
+    pub msg_id: String,
+    pub src_id: String,
+    pub dst_id: Option<String>,
+    pub ttl: u8,
+    pub hop_count: u8,
+    pub payload: PacketType,
+    pub timestamp: u64,
 }
 
 pub struct SecureChannel {
@@ -45,64 +72,84 @@ pub struct SecureChannel {
 impl SecureChannel {
     pub fn new() -> Self {
         if sodiumoxide::init().is_err() { eprintln!("Crypto init failed"); }
-        let key_bytes = [
-            42, 13, 7, 99, 1, 2, 3, 4, 
-            5, 6, 7, 8, 9, 10, 11, 12, 
-            13, 14, 15, 16, 17, 18, 19, 20, 
-            21, 22, 23, 24, 25, 26, 27, 28
-        ];
-        let key = secretbox::Key(key_bytes);
-        Self { key }
+        let key_bytes = [42, 13, 7, 99, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28];
+        Self { key: secretbox::Key(key_bytes) }
     }
-
-    pub fn encrypt(&self, plaintext: &str) -> Vec<u8> {
+    pub fn encrypt(&self, data: &[u8]) -> Vec<u8> {
         let nonce = secretbox::gen_nonce();
-        let encrypted = secretbox::seal(plaintext.as_bytes(), &nonce, &self.key);
+        let encrypted = secretbox::seal(data, &nonce, &self.key);
         let mut result = nonce.0.to_vec();
         result.extend(encrypted);
         result
     }
-
-    pub fn decrypt(&self, ciphertext: &[u8]) -> Result<String, &'static str> {
-        if ciphertext.len() < secretbox::NONCEBYTES { return Err("Invalid length"); }
+    pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, &'static str> {
+        if ciphertext.len() < secretbox::NONCEBYTES { return Err("Invalid"); }
         let mut nonce_bytes = [0u8; secretbox::NONCEBYTES];
         nonce_bytes.copy_from_slice(&ciphertext[..secretbox::NONCEBYTES]);
         let nonce = secretbox::Nonce(nonce_bytes);
-        let decrypted = secretbox::open(&ciphertext[secretbox::NONCEBYTES..], &nonce, &self.key).map_err(|_| "Fail")?;
-        String::from_utf8(decrypted).map_err(|_| "UTF8 Error")
+        secretbox::open(&ciphertext[secretbox::NONCEBYTES..], &nonce, &self.key).map_err(|_| "Fail")
     }
 }
 
 pub struct AppState {
-    pub peers: Arc<Mutex<Vec<PeerInfo>>>,
+    pub peers: Arc<Mutex<HashMap<String, PeerInfo>>>,
     pub messages: Arc<Mutex<Vec<Message>>>,
     pub logs: Arc<Mutex<Vec<String>>>,
     pub my_id: String,
     pub my_name: String,
     pub crypto: Arc<Mutex<SecureChannel>>,
+    pub received_msgs: Arc<Mutex<HashSet<String>>>,
+    pub file_transfers: Arc<Mutex<HashMap<String, FileTransferState>>>,
+    pub metrics: Arc<Mutex<Metrics>>,
+}
+
+pub struct FileTransferState {
+    pub filename: String,
+    pub total_size: u64,
+    pub received_chunks: HashMap<u64, Vec<u8>>,
+    pub next_expected: u64,
+}
+
+pub struct Metrics {
+    pub ping_ms: f32,
+    pub packet_loss_percent: f32,
+    pub sent_packets: u32,
+    pub lost_packets: u32,
+    pub last_update: Instant,
 }
 
 impl AppState {
     pub fn new() -> Self {
         let my_id = Uuid::new_v4().to_string()[..8].to_string();
         let state = Self {
-            peers: Arc::new(Mutex::new(Vec::new())),
+            peers: Arc::new(Mutex::new(HashMap::new())),
             messages: Arc::new(Mutex::new(Vec::new())),
-            logs: Arc::new(Mutex::new(vec![format!("🚀 System initialized. My ID: {}", my_id)])),
+            logs: Arc::new(Mutex::new(vec![format!("System initialized. ID: {}", my_id)])),
             my_name: format!("User_{}", my_id),
             my_id: my_id.clone(),
             crypto: Arc::new(Mutex::new(SecureChannel::new())),
+            received_msgs: Arc::new(Mutex::new(HashSet::new())),
+            file_transfers: Arc::new(Mutex::new(HashMap::new())),
+            metrics: Arc::new(Mutex::new(Metrics {
+                ping_ms: 0.0,
+                packet_loss_percent: 0.0,
+                sent_packets: 0,
+                lost_packets: 0,
+                last_update: Instant::now(),
+            })),
         };
         
         let p_clone = Arc::clone(&state.peers);
         let m_clone = Arc::clone(&state.messages);
         let c_clone = Arc::clone(&state.crypto);
         let l_clone = Arc::clone(&state.logs);
+        let r_clone = Arc::clone(&state.received_msgs);
+        let f_clone = Arc::clone(&state.file_transfers);
+        let met_clone = Arc::clone(&state.metrics);
         let id_clone = my_id.clone();
         let name_clone = state.my_name.clone();
 
-        thread::spawn(move || Self::network_loop(id_clone, name_clone, p_clone, m_clone, l_clone, c_clone));
-        
+        thread::spawn(move || Self::network_loop(id_clone, name_clone, p_clone, m_clone, l_clone, c_clone, r_clone, f_clone, met_clone));
         state
     }
 
@@ -110,7 +157,7 @@ impl AppState {
         let mut l = logs.lock().unwrap();
         let time = Local::now().format("%H:%M:%S%.3f").to_string();
         l.push(format!("[{}] {}", time, msg));
-        if l.len() > 100 { l.remove(0); }
+        if l.len() > 200 { l.remove(0); }
     }
 
     fn get_local_ip() -> String {
@@ -128,55 +175,206 @@ impl AppState {
         UdpSocket::from(sock)
     }
 
+    fn serialize_packet(packet: &MeshPacket, crypto: &Mutex<SecureChannel>) -> Vec<u8> {
+        let json = serde_json::to_vec(packet).unwrap();
+        crypto.lock().unwrap().encrypt(&json)
+    }
+
+    fn deserialize_packet(data: &[u8], crypto: &Mutex<SecureChannel>) -> Option<MeshPacket> {
+        let decrypted = crypto.lock().unwrap().decrypt(data).ok()?;
+        serde_json::from_slice(&decrypted).ok()
+    }
+
     fn network_loop(
         my_id: String, my_name: String, 
-        peers: Arc<Mutex<Vec<PeerInfo>>>, 
+        peers: Arc<Mutex<HashMap<String, PeerInfo>>>, 
         messages: Arc<Mutex<Vec<Message>>>, 
         logs: Arc<Mutex<Vec<String>>>, 
-        crypto: Arc<Mutex<SecureChannel>>
+        crypto: Arc<Mutex<SecureChannel>>,
+        received_msgs: Arc<Mutex<HashSet<String>>>,
+        file_transfers: Arc<Mutex<HashMap<String, FileTransferState>>>,
+        metrics: Arc<Mutex<Metrics>>
     ) {
         let socket = Self::create_udp_socket(DISCOVERY_PORT);
         let my_ip = Self::get_local_ip();
-        Self::add_log(&logs, &format!("📡 Discovery Service started on {}:{}", my_ip, DISCOVERY_PORT));
-        Self::add_log(&logs, "📡 Broadcasting hello packets every 2s...");
+        Self::add_log(&logs, &format!("Discovery on {}:{}", my_ip, DISCOVERY_PORT));
 
-        let c_clone_tcp = Arc::clone(&crypto);
-        let l_clone_tcp = Arc::clone(&logs);
-        let m_clone_tcp = Arc::clone(&messages);
-        
-        let p_clone_audio = Arc::clone(&peers);
-        let l_clone_audio = Arc::clone(&logs);
+        let c_clone = Arc::clone(&crypto);
+        let l_clone = Arc::clone(&logs);
+        let m_clone = Arc::clone(&messages);
+        let p_clone = Arc::clone(&peers);
+        let r_clone = Arc::clone(&received_msgs);
+        let f_clone = Arc::clone(&file_transfers);
+        let met_clone = Arc::clone(&metrics);
 
-        Self::add_log(&logs, "🧵 Spawning TCP Listener thread...");
-        thread::spawn(move || Self::tcp_listener(CHAT_PORT, m_clone_tcp, l_clone_tcp, c_clone_tcp));
-        
-        Self::add_log(&logs, "🧵 Spawning UDP Audio Listener thread...");
-        thread::spawn(move || Self::audio_listener(AUDIO_PORT, p_clone_audio, l_clone_audio));
+        thread::spawn(move || Self::tcp_listener(DATA_PORT, m_clone, l_clone, c_clone, r_clone, f_clone, met_clone, p_clone));
 
         loop {
-            let hello = Packet::Hello(PeerInfo { 
-                id: my_id.clone(), name: my_name.clone(), 
-                ip: my_ip.clone(), port: CHAT_PORT 
-            });
-            let data = serde_json::to_string(&hello).unwrap();
-            
-            let _ = socket.send_to(data.as_bytes(), "255.255.255.255:5000");
-            let _ = socket.send_to(data.as_bytes(), "127.0.0.1:5000");
-
+            let hello = MeshPacket {
+                msg_id: Uuid::new_v4().to_string(),
+                src_id: my_id.clone(),
+                dst_id: None,
+                ttl: MAX_TTL,
+                hop_count: 0,
+                payload: PacketType::Hello,
+                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            };
+            let data = Self::serialize_packet(&hello, &crypto);
+            let _ = socket.send_to(&data, "255.255.255.255:5000");
             thread::sleep(Duration::from_secs(2));
 
             socket.set_read_timeout(Some(Duration::from_millis(100))).ok();
             let mut buf = [0; 65535];
             if let Ok((len, addr)) = socket.recv_from(&mut buf) {
-                if let Ok(Packet::Hello(peer)) = serde_json::from_slice::<Packet>(&buf[..len]) {
-                    if peer.id != my_id {
-                        let mut p = peers.lock().unwrap();
-                        if !p.iter().any(|x| x.id == peer.id) {
-                            Self::add_log(&logs, &format!("✅ NEW PEER FOUND: {} at {}", peer.name, addr.ip()));
-                            p.push(peer);
-                        }
-                    }
+                if let Some(packet) = Self::deserialize_packet(&buf[..len], &crypto) {
+                    Self::process_packet(packet, &addr.ip().to_string(), &my_id, &my_name, &peers, &messages, &logs, &received_msgs, &file_transfers, &crypto, &metrics, &socket);
                 }
+            }
+        }
+    }
+
+    fn process_packet(
+        packet: MeshPacket,
+        sender_ip: &str,
+        my_id: &str,
+        _my_name: &str,
+        peers: &Arc<Mutex<HashMap<String, PeerInfo>>>,
+        messages: &Arc<Mutex<Vec<Message>>>,
+        logs: &Arc<Mutex<Vec<String>>>,
+        received_msgs: &Arc<Mutex<HashSet<String>>>,
+        file_transfers: &Arc<Mutex<HashMap<String, FileTransferState>>>,
+        crypto: &Arc<Mutex<SecureChannel>>,
+        metrics: &Arc<Mutex<Metrics>>,
+        socket: &UdpSocket
+    ) {
+        if packet.src_id == my_id { return; }
+        
+        // Дедупликация
+        let mut r_lock = received_msgs.lock().unwrap();
+        if r_lock.contains(&packet.msg_id) {
+            return; 
+        }
+        r_lock.insert(packet.msg_id.clone());
+        if r_lock.len() > 1000 { r_lock.clear(); } 
+        drop(r_lock);
+
+        // Mesh Ретрансляция
+        if packet.ttl > 1 && packet.dst_id.as_ref().map_or(true, |id| id != my_id) {
+            let mut forward_packet = packet.clone();
+            forward_packet.ttl -= 1;
+            forward_packet.hop_count += 1;
+            let data = Self::serialize_packet(&forward_packet, crypto);
+            let _ = socket.send_to(&data, "255.255.255.255:5000");
+        }
+
+        // Обработка если пакет для меня
+        if packet.dst_id.as_ref().map_or(true, |id| id == my_id) {
+            match packet.payload {
+                PacketType::Hello => {
+                    let mut p_lock = peers.lock().unwrap();
+                    p_lock.entry(packet.src_id.clone()).or_insert_with(|| PeerInfo {
+                        id: packet.src_id.clone(),
+                        name: format!("User_{}", &packet.src_id[..4]),
+                        ip: sender_ip.to_string(),
+                        port: DATA_PORT,
+                        last_seen: packet.timestamp,
+                    });
+                    Self::add_log(logs, &format!("Found peer: {} via {} hops", packet.src_id, packet.hop_count));
+                },
+                PacketType::Chat(text) => {
+                    let msg = Message {
+                        id: packet.msg_id.clone(),
+                        sender_id: packet.src_id.clone(),
+                        sender_name: format!("User@{}", sender_ip),
+                        content: text,
+                        timestamp: Local::now().format("%H:%M:%S").to_string(),
+                        is_file: false,
+                        file_name: None,
+                        file_size: None,
+                        progress: 0.0,
+                    };
+                    messages.lock().unwrap().push(msg);
+                    
+                    let ack = MeshPacket {
+                        msg_id: Uuid::new_v4().to_string(),
+                        src_id: my_id.to_string(),
+                        dst_id: Some(packet.src_id),
+                        ttl: MAX_TTL,
+                        hop_count: 0,
+                        payload: PacketType::Ack(packet.msg_id),
+                        timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                    };
+                    let _ = socket.send_to(&Self::serialize_packet(&ack, crypto), format!("{}:{}", sender_ip, DISCOVERY_PORT).as_str());
+                },
+                PacketType::FileChunk { filename, total_size, chunk_index, data, hash: _ } => {
+                    let mut ft_lock = file_transfers.lock().unwrap();
+                    let entry = ft_lock.entry(filename.clone()).or_insert_with(|| FileTransferState {
+                        filename: filename.clone(),
+                        total_size,
+                        received_chunks: HashMap::new(),
+                        next_expected: 0,
+                    });
+                    
+                    entry.received_chunks.insert(chunk_index, data);
+                    if chunk_index == entry.next_expected {
+                        entry.next_expected += 1;
+                    }
+                    
+                    let total_chunks = (total_size as f32 / CHUNK_SIZE as f32).ceil();
+                    let progress = (entry.received_chunks.len() as f32 / total_chunks) * 100.0;
+                    
+                    let msg_content = format!("Receiving {}... {:.1}%", filename, progress);
+                    
+                    let mut msgs = messages.lock().unwrap();
+                    let update_existing = msgs.iter_mut().rev().find(|m| m.file_name.as_ref() == Some(&filename) && m.is_file);
+                    
+                    if let Some(last) = update_existing {
+                        last.progress = progress;
+                        last.content = msg_content;
+                    } else {
+                        msgs.push(Message {
+                            id: packet.msg_id.clone(),
+                            sender_id: packet.src_id.clone(),
+                            sender_name: format!("File@{}", sender_ip),
+                            content: msg_content,
+                            timestamp: Local::now().format("%H:%M:%S").to_string(),
+                            is_file: true,
+                            file_name: Some(filename.clone()),
+                            file_size: Some(total_size),
+                            progress,
+                        });
+                    }
+
+                    let ack = MeshPacket {
+                        msg_id: Uuid::new_v4().to_string(),
+                        src_id: my_id.to_string(),
+                        dst_id: Some(packet.src_id),
+                        ttl: MAX_TTL,
+                        hop_count: 0,
+                        payload: PacketType::FileAck { filename: filename.clone(), chunk_index },
+                        timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                    };
+                    let _ = socket.send_to(&Self::serialize_packet(&ack, crypto), format!("{}:{}", sender_ip, DISCOVERY_PORT).as_str());
+                },
+                PacketType::Audio(_) => { }, 
+                PacketType::Ping => {
+                     let pong = MeshPacket {
+                        msg_id: Uuid::new_v4().to_string(),
+                        src_id: my_id.to_string(),
+                        dst_id: Some(packet.src_id),
+                        ttl: MAX_TTL,
+                        hop_count: 0,
+                        payload: PacketType::Pong,
+                        timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                    };
+                    let _ = socket.send_to(&Self::serialize_packet(&pong, crypto), format!("{}:{}", sender_ip, DISCOVERY_PORT).as_str());
+                },
+                PacketType::Pong => {
+                    let mut met = metrics.lock().unwrap();
+                    met.ping_ms = (Instant::now().duration_since(met.last_update).as_secs_f32()) * 1000.0;
+                    met.last_update = Instant::now();
+                },
+                _ => {}
             }
         }
     }
@@ -185,171 +383,194 @@ impl AppState {
         port: u16, 
         messages: Arc<Mutex<Vec<Message>>>, 
         logs: Arc<Mutex<Vec<String>>>, 
-        crypto: Arc<Mutex<SecureChannel>>
+        crypto: Arc<Mutex<SecureChannel>>,
+        received_msgs: Arc<Mutex<HashSet<String>>>,
+        file_transfers: Arc<Mutex<HashMap<String, FileTransferState>>>,
+        metrics: Arc<Mutex<Metrics>>,
+        peers: Arc<Mutex<HashMap<String, PeerInfo>>>
     ) {
         let listener = match TcpListener::bind(format!("0.0.0.0:{}", port)) {
-            Ok(l) => { 
-                Self::add_log(&logs, &format!("💬 TCP Chat Server listening on port {}", port)); 
-                l 
-            },
-            Err(e) => { 
-                Self::add_log(&logs, &format!("❌ CRITICAL: TCP Bind failed on port {}: {}", port, e)); 
-                return; 
-            }
+            Ok(l) => { Self::add_log(&logs, &format!("TCP Listening on {}", port)); l },
+            Err(e) => { Self::add_log(&logs, &format!("TCP Bind error: {}", e)); return; }
         };
 
         for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    let peer_addr = stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or("unknown".to_string());
-                    Self::add_log(&logs, &format!("🔗 Incoming TCP connection from {}", peer_addr));
-                    
-                    let mut buffer = [0; 65535];
-                    match stream.read(&mut buffer) {
-                        Ok(len) => {
-                            if len > 0 {
-                                Self::add_log(&logs, &format!("📥 Received {} bytes from {}", len, peer_addr));
-                                if let Ok(enc_data) = serde_json::from_slice::<Vec<u8>>(&buffer[..len]) {
-                                    match crypto.lock().unwrap().decrypt(&enc_data) {
-                                        Ok(content) => {
-                                            Self::add_log(&logs, &format!("🔓 DECRYPTED MSG from {}: '{}'", peer_addr, content));
-                                            let msg = Message {
-                                                id: Uuid::new_v4().to_string()[..8].to_string(),
-                                                sender_id: "remote".to_string(),
-                                                sender_name: "User@".to_string() + &peer_addr,
-                                                content,
-                                                timestamp: Local::now().format("%H:%M:%S").to_string(),
-                                            };
-                                            messages.lock().unwrap().push(msg);
-                                        },
-                                        Err(e) => Self::add_log(&logs, &format!("❌ Decryption failed from {}: {}", peer_addr, e)),
-                                    }
-                                } else {
-                                    Self::add_log(&logs, &format!("⚠️ Failed to parse JSON from {}", peer_addr));
-                                }
-                            }
-                        },
-                        Err(e) => Self::add_log(&logs, &format!("❌ Read error from {}: {}", peer_addr, e)),
+            if let Ok(mut stream) = stream {
+                let peer_addr = stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or("unknown".to_string());
+                let mut buffer = [0; 65535];
+                if let Ok(len) = stream.read(&mut buffer) {
+                    if len > 0 {
+                         if let Ok(decrypted) = crypto.lock().unwrap().decrypt(&buffer[..len]) {
+                             if let Ok(packet) = serde_json::from_slice::<MeshPacket>(&decrypted) {
+                                 let socket = Self::create_udp_socket(0); 
+                                 Self::process_packet(packet, &peer_addr, "me", "me", &peers, &messages, &logs, &received_msgs, &file_transfers, &crypto, &metrics, &socket);
+                             }
+                         }
                     }
-                },
-                Err(e) => Self::add_log(&logs, &format!("❌ Incoming connection failed: {}", e)),
-            }
-        }
-    }
-
-    fn audio_listener(
-        port: u16, 
-        _peers: Arc<Mutex<Vec<PeerInfo>>>, 
-        logs: Arc<Mutex<Vec<String>>>
-    ) {
-        let socket = Self::create_udp_socket(port);
-        Self::add_log(&logs, &format!("🎤 Audio Stream Listener started on UDP port {}", port));
-        let mut buf = [0u8; 4096];
-        let mut packet_count = 0;
-        
-        loop {
-            socket.set_read_timeout(Some(Duration::from_millis(500))).ok();
-            if let Ok((len, addr)) = socket.recv_from(&mut buf) {
-                packet_count += 1;
-                if packet_count % 10 == 0 {
-                     Self::add_log(&logs, &format!("🎵 Audio packet #{} from {}: {} bytes", packet_count, addr.ip(), len));
                 }
             }
         }
     }
 
-    pub fn get_peers(&self) -> Vec<PeerInfo> { self.peers.lock().unwrap().clone() }
-    pub fn get_messages(&self) -> Vec<Message> { self.messages.lock().unwrap().clone() }
-    pub fn get_logs(&self) -> Vec<String> { self.logs.lock().unwrap().clone() }
-    
     pub fn send_message(&self, content: String) -> Result<(), String> {
+        let msg_id = Uuid::new_v4().to_string();
+        let packet = MeshPacket {
+            msg_id: msg_id.clone(),
+            src_id: self.my_id.clone(),
+            dst_id: None,
+            ttl: MAX_TTL,
+            hop_count: 0,
+            payload: PacketType::Chat(content.clone()),
+            timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+        };
+        
         let msg = Message {
-            id: Uuid::new_v4().to_string()[..8].to_string(),
-            sender_id: self.my_id.clone(), sender_name: self.my_name.clone(),
-            content: content.clone(), timestamp: Local::now().format("%H:%M:%S").to_string(),
+            id: msg_id.clone(),
+            sender_id: self.my_id.clone(),
+            sender_name: self.my_name.clone(),
+            content,
+            timestamp: Local::now().format("%H:%M:%S").to_string(),
+            is_file: false,
+            file_name: None,
+            file_size: None,
+            progress: 0.0,
         };
         self.messages.lock().unwrap().push(msg);
-        
-        let encrypted = self.crypto.lock().unwrap().encrypt(&content);
-        let data = serde_json::to_string(&encrypted).unwrap();
-        
-        Self::add_log(&self.logs, &format!("📤 Sending message '{}' (encrypted size: {} bytes)", content, data.len()));
 
-        let peers = self.peers.lock().unwrap().clone();
-        let mut sent_count = 0;
+        let data = Self::serialize_packet(&packet, &self.crypto);
+        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+        socket.set_broadcast(true).map_err(|e| e.to_string())?;
         
-        for peer in &peers {
-            let addr = format!("{}:{}", peer.ip, peer.port);
-            match TcpStream::connect(&addr) {
-                Ok(mut stream) => {
-                    match stream.write_all(data.as_bytes()) {
-                        Ok(_) => {
-                            sent_count += 1;
-                            Self::add_log(&self.logs, &format!("✅ Sent to {} successfully", peer.name));
-                        },
-                        Err(e) => Self::add_log(&self.logs, &format!("❌ Write failed to {}: {}", peer.name, e)),
-                    }
-                },
-                Err(e) => Self::add_log(&self.logs, &format!("❌ Connect failed to {}: {}", peer.name, e)),
+        let mut sent = false;
+        for peer in self.peers.lock().unwrap().values() {
+            if socket.send_to(&data, format!("{}:{}", peer.ip, DISCOVERY_PORT).as_str()).is_ok() {
+                sent = true;
+                let mut met = self.metrics.lock().unwrap();
+                met.sent_packets += 1;
+                met.last_update = Instant::now();
             }
         }
-        
-        if sent_count == 0 && !peers.is_empty() { 
-            Err("No peers responded".to_string()) 
-        } else if peers.is_empty() {
-            Self::add_log(&self.logs, "⚠️ No peers in list to send message");
-            Ok(())
-        } else {
-            Ok(())
-        }
+        if !sent { return Err("No peers".to_string()); }
+        Ok(())
     }
 
-    pub fn send_audio(&self, ip: String, port: u16, data: Vec<u8>) -> Result<(), String> {
+    pub fn send_file(&self, path: String) -> Result<(), String> {
+        let file = File::open(&path).map_err(|e| e.to_string())?;
+        let total_size = file.metadata().map_err(|e| e.to_string())?.len();
+        let filename = path.split('\\').last().or(path.split('/').last()).unwrap_or("file").to_string();
+        
+        let mut reader = BufReader::new(file);
+        let mut buffer = vec![0; CHUNK_SIZE];
+        let mut chunk_index = 0;
+
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-        let addr = format!("{}:{}", ip, port);
-        match socket.send_to(&data, &addr) {
-            Ok(_sent) => {
-                Ok(())
-            },
-            Err(e) => {
-                Self::add_log(&self.logs, &format!("❌ Audio send failed to {}: {}", ip, e));
-                Err(e.to_string())
+        socket.set_broadcast(true).map_err(|e| e.to_string())?;
+
+        loop {
+            let n = reader.read(&mut buffer).map_err(|e| e.to_string())?;
+            if n == 0 { break; }
+            
+            let chunk_data = buffer[..n].to_vec();
+            let mut hasher = Sha256::new();
+            hasher.update(&chunk_data);
+            let hash = format!("{:x}", hasher.finalize());
+
+            let packet = MeshPacket {
+                msg_id: Uuid::new_v4().to_string(),
+                src_id: self.my_id.clone(),
+                dst_id: None,
+                ttl: MAX_TTL,
+                hop_count: 0,
+                payload: PacketType::FileChunk {
+                    filename: filename.clone(),
+                    total_size,
+                    chunk_index,
+                    data: chunk_data,
+                    hash,
+                },
+                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            };
+
+            let data = Self::serialize_packet(&packet, &self.crypto);
+            for peer in self.peers.lock().unwrap().values() {
+                let _ = socket.send_to(&data, format!("{}:{}", peer.ip, DISCOVERY_PORT).as_str());
             }
+            
+            let progress = ((chunk_index as f32 * CHUNK_SIZE as f32) / total_size as f32) * 100.0;
+            let msg = Message {
+                id: packet.msg_id,
+                sender_id: self.my_id.clone(),
+                sender_name: self.my_name.clone(),
+                content: format!("Sending {}... {:.1}%", filename, progress),
+                timestamp: Local::now().format("%H:%M:%S").to_string(),
+                is_file: true,
+                file_name: Some(filename.clone()),
+                file_size: Some(total_size),
+                progress,
+            };
+            self.messages.lock().unwrap().push(msg);
+            
+            chunk_index += 1;
+            thread::sleep(Duration::from_millis(50));
         }
+        Ok(())
+    }
+
+    pub fn send_ping(&self) {
+        let packet = MeshPacket {
+            msg_id: Uuid::new_v4().to_string(),
+            src_id: self.my_id.clone(),
+            dst_id: None,
+            ttl: MAX_TTL,
+            hop_count: 0,
+            payload: PacketType::Ping,
+            timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+        };
+        let data = Self::serialize_packet(&packet, &self.crypto);
+        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+        socket.set_broadcast(true).unwrap();
+        for peer in self.peers.lock().unwrap().values() {
+            let _ = socket.send_to(&data, format!("{}:{}", peer.ip, DISCOVERY_PORT).as_str());
+        }
+        let mut met = self.metrics.lock().unwrap();
+        met.last_update = Instant::now();
+        met.sent_packets += 1;
+    }
+
+    pub fn get_peers(&self) -> Vec<PeerInfo> { self.peers.lock().unwrap().values().cloned().collect() }
+    pub fn get_messages(&self) -> Vec<Message> { self.messages.lock().unwrap().clone() }
+    pub fn get_logs(&self) -> Vec<String> { self.logs.lock().unwrap().clone() }
+    pub fn get_metrics(&self) -> (f32, f32) {
+        let m = self.metrics.lock().unwrap();
+        (m.ping_ms, m.packet_loss_percent)
     }
 }
 
 #[tauri::command]
 fn get_peers(state: tauri::State<AppState>) -> Vec<PeerInfo> { state.get_peers() }
-
 #[tauri::command]
 fn get_messages(state: tauri::State<AppState>) -> Vec<Message> { state.get_messages() }
-
 #[tauri::command]
 fn get_logs(state: tauri::State<AppState>) -> Vec<String> { state.get_logs() }
-
 #[tauri::command]
-fn send_message(state: tauri::State<AppState>, content: String) -> Result<(), String> { 
-    state.send_message(content) 
-}
-
+fn send_message(state: tauri::State<AppState>, content: String) -> Result<(), String> { state.send_message(content) }
 #[tauri::command]
-fn send_audio(state: tauri::State<AppState>, ip: String, port: u16, data: Vec<u8>) -> Result<(), String> { 
-    state.send_audio(ip, port, data) 
-}
-
+fn send_file(state: tauri::State<AppState>, path: String) -> Result<(), String> { state.send_file(path) }
 #[tauri::command]
-fn get_my_id(state: tauri::State<AppState>) -> String { 
-    state.my_id.clone() 
-}
+fn send_ping(state: tauri::State<AppState>) { state.send_ping() }
+#[tauri::command]
+fn get_metrics(state: tauri::State<AppState>) -> (f32, f32) { state.get_metrics() }
+#[tauri::command]
+fn get_my_id(state: tauri::State<AppState>) -> String { state.my_id.clone() }
 
 fn main() {
     let state = AppState::new();
-    println!("DCS Glass OS Started. ID: {}", state.my_id);
+    println!("DCS Mesh Victory Started. ID: {}", state.my_id);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init()) // <-- ДОБАВЛЕНО: Инициализация плагина диалогов
         .manage(state)
-        .invoke_handler(tauri::generate_handler![get_peers, get_messages, send_message, get_my_id, get_logs, send_audio])
+        .invoke_handler(tauri::generate_handler![get_peers, get_messages, send_message, get_my_id, get_logs, send_file, send_ping, get_metrics])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

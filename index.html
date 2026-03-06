@@ -3,558 +3,279 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DCS Dark OS</title>
+    <title>DCS Mesh Victory</title>
     <style>
         :root {
-            /* Строгая серая палитра */
-            --bg-body: #121212;
-            --bg-panel: #1e1e1e;
-            --bg-header: #252525;
-            --bg-input: #2c2c2c;
-            --bg-hover: #333333;
-            --bg-active: #3a3a3a;
-            
-            --border: #444444;
-            --text-main: #e0e0e0;
-            --text-muted: #888888;
-            --text-bright: #ffffff;
-            
-            --accent: #ffffff; /* Белый акцент */
-            --danger: #cf6679; /* Приглушенный красный */
-            --success: #03dac6; /* Приглушенный бирюзовый (для статуса) */
-            
+            --bg-body: #121212; --bg-panel: #1e1e1e; --bg-header: #252525; --bg-input: #2c2c2c;
+            --bg-hover: #333333; --border: #444444; --text-main: #e0e0e0; --text-muted: #888888;
+            --text-bright: #ffffff; --danger: #cf6679; --success: #03dac6; --accent: #ffffff;
             --shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
         }
-
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: var(--bg-body);
-            color: var(--text-main);
-            height: 100vh;
-            overflow: hidden;
-            position: relative;
-        }
-
-        /* --- Фон без градиентов, просто темный --- */
-        .liquid-bg {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1;
-            background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%);
-        }
-
-        /* --- Views System --- */
-        .view {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            display: flex; flex-direction: column;
-            opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
-            padding: 20px;
-        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-body); color: var(--text-main); height: 100vh; overflow: hidden; position: relative; }
+        .liquid-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; background: radial-gradient(circle at center, #1a1a1a 0%, #000000 100%); }
+        .view { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; padding: 20px; }
         .view.active { opacity: 1; pointer-events: all; z-index: 10; }
-
-        /* --- Main Menu --- */
         #view-menu { justify-content: center; align-items: center; text-align: center; }
-        .profile-card {
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 50px 40px;
-            width: 380px;
-            box-shadow: var(--shadow);
-            animation: fadeIn 0.4s ease-out;
-        }
-        .avatar {
-            width: 90px; height: 90px;
-            background: var(--bg-active);
-            border: 2px solid var(--border);
-            border-radius: 50%;
-            margin: 0 auto 20px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 36px; font-weight: bold; color: var(--text-bright);
-        }
+        .profile-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 50px 40px; width: 380px; box-shadow: var(--shadow); animation: fadeIn 0.4s ease-out; }
+        .avatar { width: 90px; height: 90px; background: var(--bg-active); border: 2px solid var(--border); border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: bold; color: var(--text-bright); }
         .user-id { font-size: 13px; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 30px; font-family: monospace; }
         .user-id span { color: var(--text-bright); font-weight: bold; }
-        
-        .menu-btn {
-            display: block; width: 100%;
-            padding: 16px; margin-bottom: 12px;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-main);
-            font-size: 16px; font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-align: left; padding-left: 20px;
-        }
-        .menu-btn:hover {
-            background: var(--bg-hover);
-            border-color: var(--text-muted);
-            transform: translateY(-2px);
-        }
+        .menu-btn { display: block; width: 100%; padding: 16px; margin-bottom: 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 16px; font-weight: 500; cursor: pointer; transition: all 0.2s; text-align: left; padding-left: 20px; }
+        .menu-btn:hover { background: var(--bg-hover); border-color: var(--text-muted); transform: translateY(-2px); }
         .menu-btn i { margin-right: 12px; font-style: normal; color: var(--text-bright); }
-
-        /* --- Chat View --- */
-        #view-chat { display: none; }
-        #view-chat.active { display: flex; }
-        
-        .chat-header {
-            padding: 15px 20px;
-            background: var(--bg-header);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 15px;
-        }
+        #view-chat { display: none; } #view-chat.active { display: flex; }
+        .chat-header { padding: 15px 20px; background: var(--bg-header); border: 1px solid var(--border); border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         .header-left, .header-right { display: flex; align-items: center; gap: 10px; }
-        
-        .btn-action {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s;
-        }
+        .btn-action { background: var(--bg-input); border: 1px solid var(--border); color: var(--text-main); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
         .btn-action:hover { background: var(--bg-hover); border-color: var(--text-bright); }
-        .btn-refresh { color: var(--text-bright); }
-
+        .metrics-display { font-size: 11px; font-family: monospace; color: var(--success); margin-left: 10px; }
         .chat-body { flex: 1; display: flex; gap: 15px; overflow: hidden; }
-        .panel {
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            display: flex; flex-direction: column;
-            overflow: hidden;
-        }
-        .panel-peers { width: 260px; }
-        .panel-messages { flex: 1; }
-        .panel-logs { width: 300px; }
-        
-        .panel-header {
-            padding: 12px 15px;
-            background: var(--bg-header);
-            border-bottom: 1px solid var(--border);
-            font-weight: 600;
-            font-size: 13px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
+        .panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; }
+        .panel-peers { width: 260px; } .panel-messages { flex: 1; } .panel-logs { width: 300px; }
+        .panel-header { padding: 12px 15px; background: var(--bg-header); border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display:flex; justify-content:space-between;}
         .panel-content { flex: 1; overflow-y: auto; padding: 15px; }
-        
-        /* Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: var(--bg-panel); }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-
-        .peer-list-item {
-            padding: 10px;
-            background: var(--bg-input);
-            margin-bottom: 8px;
-            border-radius: 6px;
-            border: 1px solid transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
+        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: var(--bg-panel); } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        .peer-list-item { padding: 10px; background: var(--bg-input); margin-bottom: 8px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; transition: all 0.2s; }
         .peer-list-item:hover { background: var(--bg-hover); border-color: var(--border); }
         .peer-name { font-weight: 600; color: var(--text-bright); font-size: 14px; }
         .peer-ip { font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 2px; }
-
-        .msg {
-            max-width: 75%;
-            padding: 10px 14px;
-            margin-bottom: 8px;
-            border-radius: 8px;
-            font-size: 14px;
-            line-height: 1.4;
-            animation: slideUp 0.2s ease-out;
-        }
-        .msg.sent {
-            align-self: flex-end;
-            background: var(--bg-active);
-            border: 1px solid var(--border);
-            color: var(--text-bright);
-            border-bottom-right-radius: 2px;
-        }
-        .msg.recv {
-            align-self: flex-start;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            border-bottom-left-radius: 2px;
-        }
+        .msg { max-width: 80%; padding: 10px 14px; margin-bottom: 8px; border-radius: 8px; font-size: 14px; line-height: 1.4; animation: slideUp 0.2s ease-out; word-break: break-word; }
+        .msg.sent { align-self: flex-end; background: var(--bg-active); border: 1px solid var(--border); color: var(--text-bright); border-bottom-right-radius: 2px; }
+        .msg.recv { align-self: flex-start; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-main); border-bottom-left-radius: 2px; }
         .msg-meta { font-size: 10px; color: var(--text-muted); margin-bottom: 4px; display: block; }
-
-        .input-area {
-            padding: 15px;
-            background: var(--bg-header);
-            border-top: 1px solid var(--border);
-            display: flex; gap: 10px;
-        }
-        input {
-            flex: 1;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            color: var(--text-bright);
-            padding: 10px 14px;
-            border-radius: 6px;
-            outline: none;
-            font-size: 14px;
-        }
+        .progress-bar { width: 100%; height: 4px; background: #333; margin-top: 5px; border-radius: 2px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--success); width: 0%; transition: width 0.3s; }
+        .input-area { padding: 15px; background: var(--bg-header); border-top: 1px solid var(--border); display: flex; gap: 10px; }
+        input { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-bright); padding: 10px 14px; border-radius: 6px; outline: none; font-size: 14px; }
         input:focus { border-color: var(--text-muted); }
-        .btn-send {
-            background: var(--text-bright);
-            color: var(--bg-body);
-            border: none;
-            padding: 0 20px;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-        .btn-send:hover { opacity: 0.9; }
-
-        /* --- Call View --- */
-        #view-call { display: none; justify-content: center; align-items: center; }
-        #view-call.active { display: flex; }
-        
-        .call-interface {
-            text-align: center;
-            width: 380px;
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: var(--shadow);
-            position: relative;
-        }
+        .btn-send { background: var(--text-bright); color: var(--bg-body); border: none; padding: 0 20px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+        .btn-file { background: var(--bg-active); color: var(--text-bright); border: 1px solid var(--border); padding: 0 15px; border-radius: 6px; cursor: pointer; }
+        .btn-file:hover { background: var(--bg-hover); }
+        #view-call { display: none; justify-content: center; align-items: center; } #view-call.active { display: flex; }
+        .call-interface { text-align: center; width: 380px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 30px; box-shadow: var(--shadow); position: relative; }
         .call-status { font-size: 20px; margin-bottom: 8px; font-weight: 600; color: var(--text-bright); }
-        .call-timer { font-size: 13px; color: var(--text-muted); font-family: monospace; margin-bottom: 30px; }
-        
+        .call-metrics { font-size: 12px; color: var(--success); font-family: monospace; margin-bottom: 20px; }
         .call-controls { display: flex; justify-content: center; gap: 15px; margin-top: 20px; }
-        .btn-circle {
-            width: 55px; height: 55px;
-            border-radius: 50%;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            transition: transform 0.2s, background 0.2s;
-            color: var(--text-bright);
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-        }
+        .btn-circle { width: 55px; height: 55px; border-radius: 50%; border: none; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.2s, background 0.2s; color: var(--text-bright); background: var(--bg-input); border: 1px solid var(--border); }
         .btn-circle:hover { transform: scale(1.05); background: var(--bg-hover); }
         .btn-end { background: var(--danger); color: #fff; border: none; }
-        .btn-menu { background: var(--bg-active); }
-        
         #peer-selection { text-align: left; margin-bottom: 20px; max-height: 150px; overflow-y: auto; }
-
-        /* --- Logs --- */
-        .log-line {
-            font-size: 11px;
-            margin-bottom: 4px;
-            padding: 4px 6px;
-            border-radius: 3px;
-            background: rgba(0,0,0,0.2);
-            border-left: 2px solid var(--border);
-            font-family: 'Consolas', monospace;
-            color: var(--text-muted);
-        }
-        .log-success { color: var(--success); border-color: var(--success); }
-        .log-error { color: var(--danger); border-color: var(--danger); }
-        .log-warn { color: #ffb74d; border-color: #ffb74d; }
-        .log-info { color: var(--text-muted); border-color: var(--text-muted); }
-
+        .log-line { font-size: 11px; margin-bottom: 4px; padding: 4px 6px; border-radius: 3px; background: rgba(0,0,0,0.2); border-left: 2px solid var(--border); font-family: 'Consolas', monospace; color: var(--text-muted); }
+        .log-success { color: var(--success); border-color: var(--success); } .log-error { color: var(--danger); border-color: var(--danger); }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
-
     <div class="liquid-bg"></div>
-
-    <!-- VIEW: MAIN MENU -->
     <div id="view-menu" class="view active">
         <div class="profile-card">
-            <div class="avatar">U</div>
-            <h2 style="margin-bottom: 5px; color: var(--text-bright);">Пользователь</h2>
+            <div class="avatar">M</div>
+            <h2 style="margin-bottom: 5px; color: var(--text-bright);">Mesh Node</h2>
             <div class="user-id">ID: <span id="my-id-display">...</span></div>
-            
-            <button class="menu-btn" onclick="switchView('chat')">
-                <i>💬</i> Чат
-            </button>
-            <button class="menu-btn" onclick="switchView('call')">
-                <i>📞</i> Голосовая связь
-            </button>
+            <button class="menu-btn" onclick="switchView('chat')"><i>💬</i> Чат + Файлы</button>
+            <button class="menu-btn" onclick="switchView('call')"><i>📞</i> Голос + Метрики</button>
         </div>
     </div>
-
-    <!-- VIEW: CHAT -->
     <div id="view-chat" class="view">
         <div class="chat-header">
-            <div class="header-left">
-                <button class="btn-action" onclick="switchView('menu')">← Меню</button>
-            </div>
-            <h3 style="color: var(--text-bright); font-size: 16px;">Общий чат</h3>
+            <div class="header-left"><button class="btn-action" onclick="switchView('menu')">← Меню</button></div>
+            <h3 style="color: var(--text-bright); font-size: 16px;">Mesh Chat</h3>
             <div class="header-right">
-                <button class="btn-action btn-refresh" onclick="forceRefresh()" title="Обновить сейчас">🔄 Обновить</button>
+                <span id="chat-metrics" class="metrics-display">Ping: -- ms</span>
+                <button class="btn-action btn-refresh" onclick="forceRefresh()">🔄</button>
             </div>
         </div>
         <div class="chat-body">
             <div class="panel panel-peers">
-                <div class="panel-header">
-                    <span>Устройства (<span id="peer-count">0</span>)</span>
-                </div>
+                <div class="panel-header"><span>Узлы (<span id="peer-count">0</span>)</span></div>
                 <div class="panel-content" id="peers-list"></div>
             </div>
             <div class="panel panel-messages">
                 <div class="panel-content" id="messages-container" style="display:flex; flex-direction:column;"></div>
                 <div class="input-area">
+                    <!-- Кнопка теперь вызывает JS функцию напрямую -->
+                    <button class="btn-file" onclick="handleFileSelect()" title="Отправить файл">📎</button>
                     <input type="text" id="msg-input" placeholder="Сообщение..." />
                     <button class="btn-send" onclick="sendMessage()">Send</button>
                 </div>
             </div>
             <div class="panel panel-logs">
-                <div class="panel-header">Системные логи</div>
+                <div class="panel-header"><span>Логи</span></div>
                 <div class="panel-content" id="logs-container"></div>
             </div>
         </div>
     </div>
-
-    <!-- VIEW: CALL -->
     <div id="view-call" class="view">
         <div class="call-interface">
-            <button class="btn-action" onclick="switchView('menu')" style="position: absolute; top: 10px; left: 10px; font-size: 11px; padding: 4px 8px;">
-                ❌ В меню
-            </button>
-
-            <div class="avatar" style="width: 80px; height: 80px; font-size: 30px; margin: 0 auto 20px;">📞</div>
-            <div id="call-status" class="call-status">Ожидание...</div>
-            <div id="call-timer" class="call-timer">00:00</div>
-            
-            <div id="peer-selection">
-                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">Доступные пользователи:</div>
-                <div id="call-peers-list"></div>
-            </div>
-
+            <button class="btn-action" onclick="switchView('menu')" style="position: absolute; top: 10px; left: 10px; font-size: 11px; padding: 4px 8px;">❌ Меню</button>
+            <div class="avatar" style="width: 80px; height: 80px; font-size: 30px; margin: 0 auto 20px;">📡</div>
+            <div id="call-status" class="call-status">Ожидание</div>
+            <div id="call-metrics" class="call-metrics">Latency: -- ms | Loss: 0%</div>
+            <div id="peer-selection"><div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">Цель:</div><div id="call-peers-list"></div></div>
             <div class="call-controls">
-                <button class="btn-circle" id="btn-mute" title="Мут">🎤</button>
-                <button class="btn-circle btn-menu" onclick="switchView('menu')" title="В главное меню">🏠</button>
-                <button class="btn-circle btn-end" onclick="endCall()" title="Завершить">❌</button>
+                <button class="btn-circle" id="btn-mute">🎤</button>
+                <button class="btn-circle btn-end" onclick="endCall()">❌</button>
             </div>
         </div>
     </div>
 
     <script type="module">
         import { invoke } from "@tauri-apps/api/core";
+        // Импортируем диалог выбора файла
+        import { open } from "@tauri-apps/plugin-dialog";
 
-        let myId = "";
-        let selectedCallPeer = null;
-        let mediaRecorder = null;
-        let audioContext = null;
-        let isMuted = false;
-        let callTimerInterval = null;
-        let autoUpdateInterval = null;
+        let myId = "", selectedCallPeer = null, mediaRecorder = null, isMuted = false, metricInterval = null;
 
-        window.switchView = (viewName) => {
+        window.switchView = (v) => {
             document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-            document.getElementById(`view-${viewName}`).classList.add('active');
-            
-            if(viewName === 'menu') endCall();
-            if(viewName === 'call') { loadCallPeers(); startAutoUpdate(); }
-            if(viewName === 'chat') { forceRefresh(); startAutoUpdate(); }
-            
-            // Если ушли с экрана, останавливаем частое обновление, чтобы не грузить систему
-            if(viewName !== 'chat' && viewName !== 'call') stopAutoUpdate();
+            document.getElementById(`view-${v}`).classList.add('active');
+            if(v === 'menu') endCall();
+            if(v === 'chat') { forceRefresh(); startMetrics(); }
+            if(v === 'call') { loadCallPeers(); startMetrics(); }
+            if(v !== 'chat' && v !== 'call') stopMetrics();
         };
 
-        function startAutoUpdate() {
-            stopAutoUpdate();
-            // Автообновление каждые 2 секунды
-            autoUpdateInterval = setInterval(() => {
-                if(document.getElementById('view-chat').classList.contains('active')) {
-                    loadPeers(); 
-                    loadMessages(); 
-                    // Логи обновляем реже, раз в 2 сек тоже ок
-                    loadLogs();
-                }
-                if(document.getElementById('view-call').classList.contains('active') && !selectedCallPeer) {
-                    loadCallPeers();
-                }
-            }, 2000);
+        function startMetrics() {
+            stopMetrics();
+            metricInterval = setInterval(async () => {
+                await invoke('send_ping');
+                const [ping, loss] = await invoke('get_metrics');
+                const txt = `Ping: ${ping.toFixed(1)} ms | Loss: ${loss.toFixed(1)}%`;
+                document.getElementById('chat-metrics').innerText = txt;
+                document.getElementById('call-metrics').innerText = txt;
+            }, 1000);
         }
 
-        function stopAutoUpdate() {
-            if(autoUpdateInterval) clearInterval(autoUpdateInterval);
+        function stopMetrics() { if(metricInterval) clearInterval(metricInterval); }
+
+        async function init() { 
+            myId = await invoke('get_my_id'); 
+            document.getElementById('my-id-display').innerText = myId; 
+            startMetrics(); 
         }
 
-        async function init() {
-            myId = await invoke('get_my_id');
-            document.getElementById('my-id-display').innerText = myId;
-            startAutoUpdate();
-            loadLogs();
-        }
-
-        window.forceRefresh = async () => {
-            const btn = document.querySelector('.btn-refresh');
-            if(btn) {
-                const originalText = btn.innerText;
-                btn.innerText = '⏳';
-                setTimeout(() => btn.innerText = originalText, 500);
-            }
-            await loadPeers();
-            await loadMessages();
-            await loadLogs();
+        window.forceRefresh = async () => { 
+            await loadPeers(); 
+            await loadMessages(); 
+            await loadLogs(); 
         };
 
         async function loadPeers() {
-            try {
-                const peers = await invoke('get_peers');
-                const list = document.getElementById('peers-list');
-                const countSpan = document.getElementById('peer-count');
-                
-                // Оптимизация: не перерисовывать, если количество не изменилось (можно усложнить проверкой ID)
-                // Но для надежности перерисуем:
-                list.innerHTML = '';
-                countSpan.innerText = peers.length;
-
-                if(peers.length === 0) {
-                    list.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:20px; font-size:12px;">Поиск...</div>';
-                    return;
-                }
-                peers.forEach(p => {
-                    const div = document.createElement('div');
-                    div.className = 'peer-list-item';
-                    div.innerHTML = `<div class="peer-name">${p.name}</div><div class="peer-ip">${p.ip}</div>`;
-                    list.appendChild(div);
-                });
-            } catch (e) { console.error(e); }
+            const peers = await invoke('get_peers');
+            const list = document.getElementById('peers-list');
+            document.getElementById('peer-count').innerText = peers.length;
+            list.innerHTML = '';
+            if(peers.length === 0) { list.innerHTML = '<div style="color:var(--text-muted); text-align:center; padding:20px; font-size:12px;">Поиск узлов...</div>'; return; }
+            peers.forEach(p => {
+                const div = document.createElement('div'); div.className = 'peer-list-item';
+                // Отображаем количество прыжков (hop_count пока не передается в PeerInfo, но можно добавить)
+                div.innerHTML = `<div class="peer-name">${p.name}</div><div class="peer-ip">${p.ip}</div>`;
+                list.appendChild(div);
+            });
         }
 
         async function loadMessages() {
-            try {
-                const msgs = await invoke('get_messages');
-                const container = document.getElementById('messages-container');
-                
-                // Простая проверка: если количество сообщений совпадает, не перерисовываем всё
-                // Но для MVP проще перерисовать всегда
-                container.innerHTML = '';
-                
-                if(msgs.length === 0) { 
-                    container.innerHTML = '<div style="color:var(--text-muted); text-align:center; margin-top:50px; font-size:13px;">Нет сообщений</div>'; 
-                    return; 
+            const msgs = await invoke('get_messages');
+            const container = document.getElementById('messages-container');
+            container.innerHTML = '';
+            if(msgs.length === 0) { container.innerHTML = '<div style="color:var(--text-muted); text-align:center; margin-top:50px; font-size:13px;">Нет сообщений</div>'; return; }
+            const shortId = myId.replace('User_', '');
+            msgs.forEach(m => {
+                const isMe = m.sender_id.includes(shortId);
+                const div = document.createElement('div'); div.className = `msg ${isMe ? 'sent' : 'recv'}`;
+                let content = m.content;
+                if(m.is_file) {
+                    content = `📁 ${m.file_name} (${m.file_size ? (m.file_size/1024).toFixed(1) : 0} KB)<div class="progress-bar"><div class="progress-fill" style="width:${m.progress}%"></div></div>`;
                 }
-                
-                const shortId = myId.replace('User_', '');
-                msgs.forEach(m => {
-                    const isMe = m.sender_id.includes(shortId);
-                    const div = document.createElement('div');
-                    div.className = `msg ${isMe ? 'sent' : 'recv'}`;
-                    div.innerHTML = `<span class="msg-meta">${isMe?'Вы':m.sender_name} • ${m.timestamp}</span>${m.content}`;
-                    container.appendChild(div);
-                });
-                container.scrollTop = container.scrollHeight;
-            } catch (e) { console.error(e); }
+                div.innerHTML = `<span class="msg-meta">${isMe?'Вы':m.sender_name} • ${m.timestamp}</span>${content}`;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
         }
 
         async function loadLogs() {
-            try {
-                const logs = await invoke('get_logs');
-                const container = document.getElementById('logs-container');
-                container.innerHTML = '';
-                // Новые сверху
-                logs.slice().reverse().forEach(line => {
-                    const div = document.createElement('div');
-                    div.className = 'log-line';
-                    if(line.includes('✅') || line.includes('Found')) div.classList.add('log-success');
-                    else if(line.includes('❌') || line.includes('Error')) div.classList.add('log-error');
-                    else if(line.includes('⚠️')) div.classList.add('log-warn');
-                    else div.classList.add('log-info');
-                    div.textContent = line;
-                    container.appendChild(div);
-                });
-            } catch (e) {}
+            const logs = await invoke('get_logs');
+            const container = document.getElementById('logs-container');
+            container.innerHTML = '';
+            logs.slice().reverse().forEach(line => {
+                const div = document.createElement('div'); div.className = 'log-line';
+                if(line.includes('✅') || line.includes('Found')) div.classList.add('log-success');
+                else if(line.includes('❌')) div.classList.add('log-error');
+                div.textContent = line; container.appendChild(div);
+            });
         }
 
         window.sendMessage = async () => {
             const input = document.getElementById('msg-input');
             const content = input.value.trim();
             if(!content) return;
-            try {
-                await invoke('send_message', { content });
-                input.value = '';
-                loadMessages();
-            } catch (e) { alert('Ошибка: ' + e); }
+            await invoke('send_message', { content });
+            input.value = '';
+            loadMessages();
         };
+
+        // ИСПРАВЛЕННАЯ ФУНКЦИЯ ВЫБОРА ФАЙЛА
+        window.handleFileSelect = async () => {
+            try {
+                // Открываем системный диалог выбора файла
+                const selectedPath = await open({
+                    multiple: false,
+                    filters: [{
+                        name: 'All Files',
+                        extensions: ['*']
+                    }]
+                });
+
+                if (selectedPath) {
+                    console.log("Файл выбран:", selectedPath);
+                    // Передаем полный путь в Rust
+                    await invoke('send_file', { path: selectedPath });
+                    // Обновляем чат, чтобы показать статус отправки
+                    loadMessages();
+                }
+            } catch (err) {
+                console.error("Ошибка при выборе файла:", err);
+                alert("Не удалось выбрать файл: " + err);
+            }
+        };
+
         document.getElementById('msg-input').onkeypress = (e) => { if(e.key==='Enter') sendMessage(); };
 
         function loadCallPeers() {
             invoke('get_peers').then(peers => {
-                const list = document.getElementById('call-peers-list');
-                list.innerHTML = '';
-                if(peers.length === 0) {
-                    list.innerHTML = '<div style="color:var(--text-muted); font-size:11px;">Нет устройств</div>';
-                    return;
-                }
+                const list = document.getElementById('call-peers-list'); list.innerHTML = '';
+                if(peers.length === 0) { list.innerHTML = '<div style="color:var(--text-muted); font-size:11px;">Нет узлов</div>'; return; }
                 peers.forEach(p => {
-                    const div = document.createElement('div');
-                    div.className = 'peer-list-item';
-                    if(selectedCallPeer && selectedCallPeer.id === p.id) div.style.borderColor = 'var(--text-bright)';
-                    div.innerText = p.name;
-                    div.onclick = () => startCall(p);
-                    list.appendChild(div);
+                    const div = document.createElement('div'); div.className = 'peer-list-item';
+                    div.innerText = p.name; div.onclick = () => startCall(p); list.appendChild(div);
                 });
             });
         }
 
         async function startCall(peer) {
             selectedCallPeer = peer;
-            document.getElementById('peer-selection').style.display = 'none';
-            document.getElementById('call-status').innerText = `Вызов: ${peer.name}`;
-            document.getElementById('call-timer').innerText = "Соединение...";
-            
+            document.getElementById('call-status').innerText = `Соединение с ${peer.name}...`;
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
                 mediaRecorder = new MediaRecorder(stream);
-                mediaRecorder.ondataavailable = async (event) => {
-                    if(event.data.size > 0 && !isMuted) {
-                        // Логика отправки аудио (закомментирована)
-                        // await invoke('send_audio', ...);
+                mediaRecorder.ondataavailable = async (ev) => {
+                    if(ev.data.size > 0 && !isMuted) { 
+                        // Здесь должна быть логика отправки аудио через invoke('send_audio'...)
+                        // Для MVP просто логируем
+                        console.log("Audio chunk ready");
                     }
                 };
                 mediaRecorder.start(100);
-                
-                let seconds = 0;
-                clearInterval(callTimerInterval);
-                callTimerInterval = setInterval(() => {
-                    seconds++;
-                    const m = Math.floor(seconds / 60).toString().padStart(2,'0');
-                    const s = (seconds % 60).toString().padStart(2,'0');
-                    document.getElementById('call-timer').innerText = `${m}:${s}`;
-                }, 1000);
-
                 document.getElementById('call-status').innerText = `Разговор`;
-
-            } catch (err) {
-                alert("Микрофон недоступен: " + err);
-                endCall();
-            }
+            } catch (err) { alert("Mic Error: " + err); endCall(); }
         }
 
         window.endCall = () => {
             if(mediaRecorder) { mediaRecorder.stop(); mediaRecorder = null; }
-            if(audioContext) { audioContext.close(); audioContext = null; }
-            clearInterval(callTimerInterval);
             selectedCallPeer = null;
-            document.getElementById('peer-selection').style.display = 'block';
-            document.getElementById('call-status').innerText = "Ожидание...";
-            document.getElementById('call-timer').innerText = "00:00";
+            document.getElementById('call-status').innerText = "Ожидание";
             loadCallPeers();
         };
 
