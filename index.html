@@ -3,403 +3,282 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DCS Glass Chat</title>
+    <title>DCS Glass OS</title>
     <style>
         :root {
             --glass-bg: rgba(255, 255, 255, 0.05);
             --glass-border: rgba(255, 255, 255, 0.1);
             --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --primary: #00d2ff;
+            --danger: #ff4b4b;
+            --success: #00ff9d;
             --text-main: #ffffff;
             --text-muted: #a0a0a0;
-            --msg-sent: rgba(118, 75, 162, 0.6);
-            --msg-recv: rgba(255, 255, 255, 0.1);
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             background: #0f0c29;
             color: var(--text-main);
             height: 100vh;
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
             position: relative;
         }
 
-        /* --- Liquid Background Animation --- */
+        /* --- Liquid Background --- */
         .liquid-bg {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: -1;
-            overflow: hidden;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1;
             background: linear-gradient(to bottom, #0f0c29, #302b63, #24243e);
         }
-
         .blob {
-            position: absolute;
-            filter: blur(80px);
-            opacity: 0.6;
+            position: absolute; filter: blur(80px); opacity: 0.6; border-radius: 50%;
             animation: float 10s infinite ease-in-out alternate;
-            border-radius: 50%;
         }
+        .blob-1 { top: -10%; left: -10%; width: 50vw; height: 50vw; background: #764ba2; }
+        .blob-2 { bottom: -10%; right: -10%; width: 60vw; height: 60vw; background: #667eea; animation-delay: -5s; }
+        .blob-3 { top: 40%; left: 40%; width: 40vw; height: 40vw; background: #ff0077; opacity: 0.3; animation-duration: 15s; }
+        @keyframes float { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(30px, 50px) scale(1.1); } }
 
-        .blob-1 {
-            top: -10%; left: -10%; width: 50vw; height: 50vw;
-            background: #764ba2;
-            animation-delay: 0s;
-        }
-
-        .blob-2 {
-            bottom: -10%; right: -10%; width: 60vw; height: 60vw;
-            background: #667eea;
-            animation-delay: -5s;
-        }
-
-        .blob-3 {
-            top: 40%; left: 40%; width: 40vw; height: 40vw;
-            background: #ff0077;
-            opacity: 0.3;
-            animation-duration: 15s;
-        }
-
-        @keyframes float {
-            0% { transform: translate(0, 0) scale(1); }
-            100% { transform: translate(30px, 50px) scale(1.1); }
-        }
-
-        /* --- Glass Container --- */
-        .app-container {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
+        /* --- Views System --- */
+        .view {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column;
+            opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
             padding: 20px;
-            gap: 20px;
-            z-index: 1;
         }
+        .view.active { opacity: 1; pointer-events: all; z-index: 10; }
 
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px 25px;
-            background: var(--glass-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
+        /* --- Main Menu --- */
+        #view-menu { justify-content: center; align-items: center; text-align: center; }
+        .profile-card {
+            background: var(--glass-bg); backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border); border-radius: 30px;
+            padding: 60px 40px; width: 400px;
             box-shadow: var(--glass-shadow);
+            animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
+        .avatar {
+            width: 100px; height: 100px;
+            background: linear-gradient(135deg, var(--primary), #764ba2);
+            border-radius: 50%; margin: 0 auto 20px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 40px; font-weight: bold;
+            box-shadow: 0 0 30px rgba(0, 210, 255, 0.4);
+        }
+        .user-id { font-size: 14px; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 40px; }
+        .user-id span { color: var(--primary); font-weight: bold; }
+        
+        .menu-btn {
+            display: block; width: 100%; padding: 18px; margin-bottom: 15px;
+            background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border);
+            border-radius: 16px; color: white; font-size: 18px; font-weight: 600;
+            cursor: pointer; transition: all 0.3s; backdrop-filter: blur(10px);
+            text-align: left; padding-left: 25px; position: relative; overflow: hidden;
+        }
+        .menu-btn:hover {
+            background: rgba(255,255,255,0.15); transform: translateY(-3px);
+            border-color: var(--primary); box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        .menu-btn i { margin-right: 15px; font-style: normal; }
+        .menu-btn.chat:hover { border-color: var(--primary); box-shadow: 0 0 20px rgba(0, 210, 255, 0.3); }
+        .menu-btn.call:hover { border-color: var(--success); box-shadow: 0 0 20px rgba(0, 255, 157, 0.3); }
 
-        .my-id {
-            font-size: 16px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        /* --- Chat View --- */
+        #view-chat { display: none; }
+        #view-chat.active { display: flex; }
+        
+        .chat-header {
+            padding: 20px; background: var(--glass-bg); backdrop-filter: blur(15px);
+            border-radius: 20px; border: 1px solid var(--glass-border);
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
         }
-        .my-id span { color: #00d2ff; }
+        .back-btn {
+            background: transparent; border: 1px solid var(--glass-border);
+            color: white; padding: 8px 16px; border-radius: 10px; cursor: pointer;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.1); }
 
-        .btn-refresh {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 12px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(4px);
-        }
-        .btn-refresh:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-
-        /* --- Main Layout --- */
-        .main-content {
-            display: flex;
-            gap: 20px;
-            flex: 1;
-            overflow: hidden;
-        }
-
+        .chat-body { flex: 1; display: flex; gap: 20px; overflow: hidden; }
         .panel {
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            box-shadow: var(--glass-shadow);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            transition: transform 0.3s ease;
+            background: var(--glass-bg); backdrop-filter: blur(15px);
+            border: 1px solid var(--glass-border); border-radius: 20px;
+            display: flex; flex-direction: column; overflow: hidden;
         }
+        .panel-peers { width: 280px; }
+        .panel-messages { flex: 1; }
+        .panel-logs { width: 320px; }
+        
+        .panel-header { padding: 15px; border-bottom: 1px solid var(--glass-border); font-weight: bold; color: var(--text-muted); }
+        .panel-content { flex: 1; overflow-y: auto; padding: 15px; }
+        
+        .msg { max-width: 70%; padding: 12px 18px; margin-bottom: 10px; border-radius: 18px; animation: popIn 0.3s; }
+        .msg.sent { align-self: flex-end; background: rgba(118, 75, 162, 0.6); margin-left: auto; border-bottom-right-radius: 4px; }
+        .msg.recv { align-self: flex-start; background: rgba(255,255,255,0.1); border-bottom-left-radius: 4px; }
+        
+        .input-area { padding: 20px; display: flex; gap: 10px; background: rgba(0,0,0,0.2); }
+        input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); padding: 12px; border-radius: 12px; color: white; outline: none; }
+        .btn-send { background: var(--primary); border: none; padding: 0 25px; border-radius: 12px; font-weight: bold; cursor: pointer; }
 
-        .panel-peers { width: 280px; flex-shrink: 0; }
-        .panel-chat { flex: 1; }
-        .panel-logs { width: 320px; flex-shrink: 0; }
+        /* --- Call View --- */
+        #view-call { display: none; justify-content: center; align-items: center; }
+        #view-call.active { display: flex; }
+        
+        .call-interface {
+            text-align: center; width: 400px;
+            background: var(--glass-bg); backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border); border-radius: 30px;
+            padding: 40px; box-shadow: var(--glass-shadow);
+        }
+        .call-status { font-size: 24px; margin-bottom: 10px; font-weight: bold; }
+        .call-timer { font-size: 14px; color: var(--text-muted); margin-bottom: 40px; }
+        
+        .call-controls { display: flex; justify-content: center; gap: 20px; }
+        .btn-circle {
+            width: 70px; height: 70px; border-radius: 50%; border: none;
+            font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: transform 0.2s;
+        }
+        .btn-mute { background: rgba(255,255,255,0.1); color: white; }
+        .btn-end { background: var(--danger); color: white; box-shadow: 0 0 20px rgba(255, 75, 75, 0.4); }
+        .btn-circle:hover { transform: scale(1.1); }
+        
+        .peer-list-item { padding: 10px; background: rgba(255,255,255,0.03); margin-bottom: 5px; border-radius: 8px; cursor: pointer; }
+        .peer-list-item:hover { background: rgba(255,255,255,0.1); }
+        .peer-list-item.active { border: 1px solid var(--success); background: rgba(0, 255, 157, 0.1); }
 
-        .panel-header {
-            padding: 15px 20px;
-            background: rgba(255, 255, 255, 0.03);
-            border-bottom: 1px solid var(--glass-border);
-            font-weight: 700;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-muted);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .panel-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 15px;
-        }
-
-        /* Scrollbar styling */
-        .panel-content::-webkit-scrollbar { width: 6px; }
-        .panel-content::-webkit-scrollbar-track { background: transparent; }
-        .panel-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-        .panel-content::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-
-        /* --- Peers List --- */
-        .peer-item {
-            padding: 12px 15px;
-            margin-bottom: 10px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid transparent;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            animation: slideIn 0.3s ease-out;
-        }
-        .peer-item:hover {
-            background: rgba(255, 255, 255, 0.08);
-            transform: translateX(5px);
-            border-color: rgba(255, 255, 255, 0.2);
-        }
-        .peer-name { font-weight: 600; color: #fff; margin-bottom: 4px; }
-        .peer-ip { font-size: 12px; color: var(--text-muted); font-family: monospace; }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* --- Chat Area --- */
-        .messages-container {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            padding-bottom: 20px;
-        }
-
-        .msg {
-            max-width: 75%;
-            padding: 12px 18px;
-            border-radius: 18px;
-            position: relative;
-            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-
-        .msg.sent {
-            align-self: flex-end;
-            background: var(--msg-sent);
-            border-bottom-right-radius: 4px;
-            box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
-        }
-
-        .msg.recv {
-            align-self: flex-start;
-            background: var(--msg-recv);
-            border-bottom-left-radius: 4px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-        }
-
-        .msg-meta {
-            font-size: 11px;
-            opacity: 0.7;
-            margin-bottom: 4px;
-            display: block;
-            font-weight: 600;
-        }
-        .msg-content { line-height: 1.4; word-wrap: break-word; }
-
-        @keyframes popIn {
-            from { opacity: 0; transform: scale(0.8) translateY(10px); }
-            to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-
-        .input-area {
-            padding: 15px 20px;
-            background: rgba(0, 0, 0, 0.2);
-            border-top: 1px solid var(--glass-border);
-            display: flex;
-            gap: 12px;
-        }
-
-        input {
-            flex: 1;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--glass-border);
-            color: white;
-            padding: 12px 18px;
-            border-radius: 14px;
-            outline: none;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-        input:focus {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.3);
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
-        }
-
-        .btn-send {
-            background: var(--primary-gradient);
-            border: none;
-            color: white;
-            padding: 0 24px;
-            border-radius: 14px;
-            cursor: pointer;
-            font-weight: 700;
-            transition: all 0.3s;
-            box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
-        }
-        .btn-send:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(118, 75, 162, 0.6);
-        }
-        .btn-send:active { transform: translateY(0); }
-
-        /* --- Logs --- */
+        /* --- Logs Styling --- */
         .log-line {
-            font-size: 12px;
-            margin-bottom: 6px;
-            padding: 6px 10px;
-            border-radius: 6px;
-            background: rgba(0,0,0,0.2);
-            border-left: 3px solid transparent;
-            animation: fadeIn 0.3s ease;
+            font-size: 11px; margin-bottom: 4px; padding: 4px 8px;
+            border-radius: 4px; background: rgba(0,0,0,0.3);
+            border-left: 3px solid transparent; font-family: 'Consolas', monospace;
+            animation: fadeIn 0.2s ease; line-height: 1.4; word-break: break-all;
         }
         .log-info { color: #ccc; border-color: #666; }
-        .log-success { color: #00ff9d; border-color: #00ff9d; background: rgba(0, 255, 157, 0.05); }
-        .log-error { color: #ff4b4b; border-color: #ff4b4b; background: rgba(255, 75, 75, 0.05); }
+        .log-success { color: #00ff9d; border-color: #00ff9d; background: rgba(0, 255, 157, 0.08); }
+        .log-error { color: #ff4b4b; border-color: #ff4b4b; background: rgba(255, 75, 75, 0.08); }
+        .log-warn { color: #ffd700; border-color: #ffd700; background: rgba(255, 215, 0, 0.08); }
+        .log-audio { color: #00d2ff; border-color: #00d2ff; background: rgba(0, 210, 255, 0.08); }
+        
+        @keyframes popIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0.4); } 70% { box-shadow: 0 0 0 20px rgba(0, 255, 157, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0); } }
+        .calling-animation { animation: pulse 1.5s infinite; }
 
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-        /* Responsive */
-        @media (max-width: 1000px) {
-            .panel-logs { display: none; }
-            .panel-peers { width: 220px; }
-        }
-        @media (max-width: 768px) {
-            .main-content { flex-direction: column; }
-            .panel-peers { width: 100%; height: 200px; }
-            .panel-chat { height: 100%; }
-            .panel-logs { display: none; }
-        }
+        @media (max-width: 1000px) { .panel-logs { display: none; } }
     </style>
 </head>
 <body>
 
-    <!-- Живой фон -->
     <div class="liquid-bg">
-        <div class="blob blob-1"></div>
-        <div class="blob blob-2"></div>
-        <div class="blob blob-3"></div>
+        <div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div>
     </div>
 
-    <div class="app-container">
-        <!-- Header -->
-        <div class="header">
-            <div class="my-id">ID: <span id="my-id">...</span></div>
-            <button class="btn-refresh" onclick="forceRefresh()">🔄 Обновить</button>
-        </div>
-
-        <!-- Main Content -->
-        <div class="main-content">
+    <!-- VIEW: MAIN MENU -->
+    <div id="view-menu" class="view active">
+        <div class="profile-card">
+            <div class="avatar">U</div>
+            <h2 style="margin-bottom: 5px;">Пользователь</h2>
+            <div class="user-id">ID: <span id="my-id-display">...</span></div>
             
-            <!-- Peers Panel -->
+            <button class="menu-btn chat" onclick="switchView('chat')">
+                <i>💬</i> Чат
+            </button>
+            <button class="menu-btn call" onclick="switchView('call')">
+                <i>📞</i> Голосовая связь
+            </button>
+        </div>
+    </div>
+
+    <!-- VIEW: CHAT -->
+    <div id="view-chat" class="view">
+        <div class="chat-header">
+            <button class="back-btn" onclick="switchView('menu')">← Назад</button>
+            <h3>Общий чат</h3>
+            <div style="width: 60px;"></div>
+        </div>
+        <div class="chat-body">
             <div class="panel panel-peers">
-                <div class="panel-header">
-                    <span>В сети</span>
-                    <span id="peer-count" style="background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:10px; font-size:12px;">0</span>
-                </div>
-                <div class="panel-content" id="peers-list">
-                    <div style="color:var(--text-muted); text-align:center; margin-top:30px;">Поиск устройств...</div>
-                </div>
+                <div class="panel-header">В сети (<span id="peer-count">0</span>)</div>
+                <div class="panel-content" id="peers-list"></div>
             </div>
-
-            <!-- Chat Panel -->
-            <div class="panel panel-chat">
-                <div class="panel-header">🌐 Общий чат</div>
-                <div class="panel-content" id="messages-container">
-                    <div style="color:var(--text-muted); text-align:center; margin-top:50px; opacity:0.6;">
-                        Сообщений пока нет.<br>Напиши что-нибудь!
-                    </div>
-                </div>
+            <div class="panel panel-messages">
+                <div class="panel-content" id="messages-container" style="display:flex; flex-direction:column;"></div>
                 <div class="input-area">
-                    <input type="text" id="msg-input" placeholder="Сообщение для всех..." autocomplete="off" />
-                    <button class="btn-send" id="send-btn">Send</button>
+                    <input type="text" id="msg-input" placeholder="Сообщение..." />
+                    <button class="btn-send" onclick="sendMessage()">Send</button>
                 </div>
             </div>
-
-            <!-- Logs Panel -->
             <div class="panel panel-logs">
                 <div class="panel-header">System Logs</div>
                 <div class="panel-content" id="logs-container"></div>
             </div>
+        </div>
+    </div>
 
+    <!-- VIEW: CALL -->
+    <div id="view-call" class="view">
+        <div class="call-interface">
+            <div id="call-avatar" class="avatar" style="margin-bottom: 20px;">📞</div>
+            <div id="call-status" class="call-status">Ожидание...</div>
+            <div id="call-timer" class="call-timer">00:00</div>
+            
+            <div id="peer-selection" style="margin-bottom: 20px; text-align: left;">
+                <div style="font-size: 12px; color: #aaa; margin-bottom: 5px;">Выберите собеседника:</div>
+                <div id="call-peers-list"></div>
+            </div>
+
+            <div class="call-controls">
+                <button class="btn-circle btn-mute" id="btn-mute">🎤</button>
+                <button class="btn-circle btn-end" onclick="endCall()">❌</button>
+            </div>
         </div>
     </div>
 
     <script type="module">
         import { invoke } from "@tauri-apps/api/core";
 
+        let myId = "";
+        let selectedCallPeer = null;
+        let mediaRecorder = null;
+        let audioContext = null;
+        let isMuted = false;
+        let callTimerInterval = null;
+
+        window.switchView = (viewName) => {
+            document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+            document.getElementById(`view-${viewName}`).classList.add('active');
+            
+            if(viewName === 'menu') endCall();
+            if(viewName === 'call') loadCallPeers();
+            if(viewName === 'chat') { loadPeers(); loadMessages(); }
+        };
+
         async function init() {
-            const id = await invoke('get_my_id');
-            document.getElementById('my-id').innerText = id;
-            forceRefresh();
-            setInterval(forceRefresh, 3000);
+            myId = await invoke('get_my_id');
+            document.getElementById('my-id-display').innerText = myId;
+            setInterval(() => {
+                if(document.getElementById('view-chat').classList.contains('active')) {
+                    loadPeers(); loadMessages(); loadLogs();
+                }
+                if(document.getElementById('view-call').classList.contains('active') && !selectedCallPeer) {
+                    loadCallPeers();
+                }
+            }, 2000);
             loadLogs();
             setInterval(loadLogs, 1000);
-        }
-
-        async function forceRefresh() {
-            await loadPeers();
-            await loadMessages();
         }
 
         async function loadPeers() {
             const peers = await invoke('get_peers');
             const list = document.getElementById('peers-list');
-            const countSpan = document.getElementById('peer-count');
+            document.getElementById('peer-count').innerText = peers.length;
             list.innerHTML = '';
-            countSpan.innerText = peers.length;
-
-            if (peers.length === 0) {
-                list.innerHTML = '<div style="color:var(--text-muted); text-align:center; margin-top:30px; opacity:0.6;">Нет устройств<br><small>(Проверь сеть)</small></div>';
-                return;
-            }
-
-            peers.forEach((p, index) => {
+            if(peers.length === 0) list.innerHTML = '<div style="color:#aaa; text-align:center; padding:20px;">Нет устройств</div>';
+            peers.forEach(p => {
                 const div = document.createElement('div');
-                div.className = 'peer-item';
-                div.style.animationDelay = `${index * 0.05}s`; // Каскадная анимация
-                div.innerHTML = `
-                    <div class="peer-name">${p.name}</div>
-                    <div class="peer-ip">${p.ip}:${p.port}</div>
-                `;
+                div.className = 'peer-list-item';
+                div.innerHTML = `<b>${p.name}</b><br><small style="color:#aaa">${p.ip}</small>`;
                 list.appendChild(div);
             });
         }
@@ -407,31 +286,16 @@
         async function loadMessages() {
             const msgs = await invoke('get_messages');
             const container = document.getElementById('messages-container');
-            
             container.innerHTML = '';
-            
-            if (msgs.length === 0) {
-                container.innerHTML = '<div style="color:var(--text-muted); text-align:center; margin-top:50px; opacity:0.6;">Чат пуст</div>';
-                return;
-            }
-
-            const myIdShort = document.getElementById('my-id').innerText.replace('User_', '');
-
-            msgs.forEach((m, index) => {
+            if(msgs.length === 0) { container.innerHTML = '<div style="color:#aaa; text-align:center; margin-top:50px;">Чат пуст</div>'; return; }
+            const shortId = myId.replace('User_', '');
+            msgs.forEach(m => {
+                const isMe = m.sender_id.includes(shortId);
                 const div = document.createElement('div');
-                const isMe = m.sender_id.includes(myIdShort);
-                
                 div.className = `msg ${isMe ? 'sent' : 'recv'}`;
-                div.style.animationDelay = `${index * 0.03}s`; // Каскад для сообщений
-                
-                const sender = isMe ? 'Вы' : m.sender_name;
-                div.innerHTML = `
-                    <span class="msg-meta">${sender} • ${m.timestamp}</span>
-                    <div class="msg-content">${m.content}</div>
-                `;
+                div.innerHTML = `<small style="opacity:0.7">${isMe?'Вы':m.sender_name}</small><br>${m.content}`;
                 container.appendChild(div);
             });
-            
             container.scrollTop = container.scrollHeight;
         }
 
@@ -439,33 +303,109 @@
             const logs = await invoke('get_logs');
             const container = document.getElementById('logs-container');
             container.innerHTML = '';
-            logs.slice().reverse().forEach(line => { // Новые сверху
+            logs.slice().reverse().forEach(line => {
                 const div = document.createElement('div');
                 div.className = 'log-line';
-                if(line.includes('✅') || line.includes('Found')) div.classList.add('log-success');
-                else if(line.includes('❌') || line.includes('Error')) div.classList.add('log-error');
+                
+                if(line.includes('✅') || line.includes('Found') || line.includes('Sent')) div.classList.add('log-success');
+                else if(line.includes('❌') || line.includes('Error') || line.includes('failed')) div.classList.add('log-error');
+                else if(line.includes('⚠️') || line.includes('Warning')) div.classList.add('log-warn');
+                else if(line.includes('🎤') || line.includes('Audio') || line.includes('🎵')) div.classList.add('log-audio');
                 else div.classList.add('log-info');
+                
                 div.textContent = line;
                 container.appendChild(div);
             });
         }
 
-        async function sendMessage() {
+        window.sendMessage = async () => {
             const input = document.getElementById('msg-input');
             const content = input.value.trim();
-            if (!content) return;
+            if(!content) return;
+            await invoke('send_message', { content });
+            input.value = '';
+            loadMessages();
+        };
+        document.getElementById('msg-input').onkeypress = (e) => { if(e.key==='Enter') sendMessage(); };
 
+        function loadCallPeers() {
+            invoke('get_peers').then(peers => {
+                const list = document.getElementById('call-peers-list');
+                list.innerHTML = '';
+                if(peers.length === 0) {
+                    list.innerHTML = '<div style="color:#aaa; font-size:12px;">Нет доступных пиров</div>';
+                    document.getElementById('call-status').innerText = "Ожидание...";
+                    return;
+                }
+                peers.forEach(p => {
+                    const div = document.createElement('div');
+                    div.className = 'peer-list-item';
+                    if(selectedCallPeer && selectedCallPeer.id === p.id) div.classList.add('active');
+                    div.innerText = p.name;
+                    div.onclick = () => startCall(p);
+                    list.appendChild(div);
+                });
+            });
+        }
+
+        async function startCall(peer) {
+            selectedCallPeer = peer;
+            document.getElementById('peer-selection').style.display = 'none';
+            document.getElementById('call-status').innerText = `Вызов: ${peer.name}`;
+            document.getElementById('call-status').classList.add('calling-animation');
+            document.getElementById('call-timer').innerText = "Соединение...";
+            
             try {
-                await invoke('send_message', { content });
-                input.value = '';
-                await loadMessages();
-            } catch (e) {
-                alert('Ошибка: ' + e);
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = async (event) => {
+                    if(event.data.size > 0 && !isMuted) {
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        const uint8Array = new Uint8Array(arrayBuffer);
+                        // Отправка аудио (закомментировано для стабильности, раскомментируйте при готовности бэкенда)
+                        // await invoke('send_audio', { ip: peer.ip, port: 5002, data: Array.from(uint8Array) });
+                        console.log("Audio chunk ready:", uint8Array.length);
+                    }
+                };
+                mediaRecorder.start(100);
+                
+                let seconds = 0;
+                clearInterval(callTimerInterval);
+                callTimerInterval = setInterval(() => {
+                    seconds++;
+                    const m = Math.floor(seconds / 60).toString().padStart(2,'0');
+                    const s = (seconds % 60).toString().padStart(2,'0');
+                    document.getElementById('call-timer').innerText = `${m}:${s}`;
+                }, 1000);
+
+                document.getElementById('call-status').classList.remove('calling-animation');
+                document.getElementById('call-status').innerText = `Разговор с ${peer.name}`;
+
+            } catch (err) {
+                alert("Ошибка доступа к микрофону: " + err);
+                endCall();
             }
         }
 
-        document.getElementById('send-btn').onclick = sendMessage;
-        document.getElementById('msg-input').onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+        window.endCall = () => {
+            if(mediaRecorder) { mediaRecorder.stop(); mediaRecorder = null; }
+            if(audioContext) { audioContext.close(); audioContext = null; }
+            clearInterval(callTimerInterval);
+            selectedCallPeer = null;
+            document.getElementById('peer-selection').style.display = 'block';
+            document.getElementById('call-status').innerText = "Ожидание...";
+            document.getElementById('call-timer').innerText = "00:00";
+            document.getElementById('call-status').classList.remove('calling-animation');
+            loadCallPeers();
+        };
+
+        document.getElementById('btn-mute').onclick = () => {
+            isMuted = !isMuted;
+            document.getElementById('btn-mute').style.background = isMuted ? '#ff4b4b' : 'rgba(255,255,255,0.1)';
+            document.getElementById('btn-mute').innerText = isMuted ? '🔇' : '🎤';
+        };
 
         init();
     </script>

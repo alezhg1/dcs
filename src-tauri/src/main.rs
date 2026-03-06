@@ -13,6 +13,7 @@ use chrono::Local;
 
 const DISCOVERY_PORT: u16 = 5000;
 const CHAT_PORT: u16 = 5001;
+const AUDIO_PORT: u16 = 5002;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PeerInfo {
@@ -67,7 +68,7 @@ impl SecureChannel {
         let mut nonce_bytes = [0u8; secretbox::NONCEBYTES];
         nonce_bytes.copy_from_slice(&ciphertext[..secretbox::NONCEBYTES]);
         let nonce = secretbox::Nonce(nonce_bytes);
-        let decrypted = secretbox::open(&ciphertext[secretbox::NONCEBYTES..], &nonce, &self.key).map_err(|_| "Decrypt fail")?;
+        let decrypted = secretbox::open(&ciphertext[secretbox::NONCEBYTES..], &nonce, &self.key).map_err(|_| "Fail")?;
         String::from_utf8(decrypted).map_err(|_| "UTF8 Error")
     }
 }
@@ -87,7 +88,7 @@ impl AppState {
         let state = Self {
             peers: Arc::new(Mutex::new(Vec::new())),
             messages: Arc::new(Mutex::new(Vec::new())),
-            logs: Arc::new(Mutex::new(vec!["System started...".to_string()])),
+            logs: Arc::new(Mutex::new(vec![format!("🚀 System initialized. My ID: {}", my_id)])),
             my_name: format!("User_{}", my_id),
             my_id: my_id.clone(),
             crypto: Arc::new(Mutex::new(SecureChannel::new())),
@@ -107,9 +108,9 @@ impl AppState {
 
     fn add_log(logs: &Arc<Mutex<Vec<String>>>, msg: &str) {
         let mut l = logs.lock().unwrap();
-        let time = Local::now().format("%H:%M:%S").to_string();
+        let time = Local::now().format("%H:%M:%S%.3f").to_string();
         l.push(format!("[{}] {}", time, msg));
-        if l.len() > 50 { l.remove(0); }
+        if l.len() > 100 { l.remove(0); }
     }
 
     fn get_local_ip() -> String {
@@ -136,16 +137,27 @@ impl AppState {
     ) {
         let socket = Self::create_udp_socket(DISCOVERY_PORT);
         let my_ip = Self::get_local_ip();
-        Self::add_log(&logs, &format!("Listening on {}:{}", my_ip, DISCOVERY_PORT));
+        Self::add_log(&logs, &format!("📡 Discovery Service started on {}:{}", my_ip, DISCOVERY_PORT));
+        Self::add_log(&logs, "📡 Broadcasting hello packets every 2s...");
 
-        let c_clone = Arc::clone(&crypto);
-        let l_clone = Arc::clone(&logs);
-        let m_clone = Arc::clone(&messages);
+        let c_clone_tcp = Arc::clone(&crypto);
+        let l_clone_tcp = Arc::clone(&logs);
+        let m_clone_tcp = Arc::clone(&messages);
         
-        thread::spawn(move || Self::tcp_listener(CHAT_PORT, m_clone, l_clone, c_clone));
+        let p_clone_audio = Arc::clone(&peers);
+        let l_clone_audio = Arc::clone(&logs);
+
+        Self::add_log(&logs, "🧵 Spawning TCP Listener thread...");
+        thread::spawn(move || Self::tcp_listener(CHAT_PORT, m_clone_tcp, l_clone_tcp, c_clone_tcp));
+        
+        Self::add_log(&logs, "🧵 Spawning UDP Audio Listener thread...");
+        thread::spawn(move || Self::audio_listener(AUDIO_PORT, p_clone_audio, l_clone_audio));
 
         loop {
-            let hello = Packet::Hello(PeerInfo { id: my_id.clone(), name: my_name.clone(), ip: my_ip.clone(), port: CHAT_PORT });
+            let hello = Packet::Hello(PeerInfo { 
+                id: my_id.clone(), name: my_name.clone(), 
+                ip: my_ip.clone(), port: CHAT_PORT 
+            });
             let data = serde_json::to_string(&hello).unwrap();
             
             let _ = socket.send_to(data.as_bytes(), "255.255.255.255:5000");
@@ -160,7 +172,7 @@ impl AppState {
                     if peer.id != my_id {
                         let mut p = peers.lock().unwrap();
                         if !p.iter().any(|x| x.id == peer.id) {
-                            Self::add_log(&logs, &format!("Found: {} ({})", peer.name, addr.ip()));
+                            Self::add_log(&logs, &format!("✅ NEW PEER FOUND: {} at {}", peer.name, addr.ip()));
                             p.push(peer);
                         }
                     }
@@ -176,36 +188,71 @@ impl AppState {
         crypto: Arc<Mutex<SecureChannel>>
     ) {
         let listener = match TcpListener::bind(format!("0.0.0.0:{}", port)) {
-            Ok(l) => {
-                Self::add_log(&logs, &format!("TCP Listening on {}", port));
-                l
+            Ok(l) => { 
+                Self::add_log(&logs, &format!("💬 TCP Chat Server listening on port {}", port)); 
+                l 
             },
-            Err(e) => { eprintln!("TCP Bind error: {}", e); return; }
+            Err(e) => { 
+                Self::add_log(&logs, &format!("❌ CRITICAL: TCP Bind failed on port {}: {}", port, e)); 
+                return; 
+            }
         };
 
         for stream in listener.incoming() {
-            if let Ok(mut stream) = stream {
-                let peer_addr = stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or("unknown".to_string());
-                let mut buffer = [0; 65535];
-                if let Ok(len) = stream.read(&mut buffer) {
-                    if len > 0 {
-                        if let Ok(enc_data) = serde_json::from_slice::<Vec<u8>>(&buffer[..len]) {
-                            if let Ok(content) = crypto.lock().unwrap().decrypt(&enc_data) {
-                                Self::add_log(&logs, &format!("Received: {}", content));
-                                
-                                let msg = Message {
-                                    id: Uuid::new_v4().to_string()[..8].to_string(),
-                                    sender_id: "remote_user".to_string(),
-                                    sender_name: "User@".to_string() + &peer_addr,
-                                    content,
-                                    timestamp: Local::now().format("%H:%M:%S").to_string(),
-                                };
-                                messages.lock().unwrap().push(msg);
-                            } else {
-                                Self::add_log(&logs, "Decrypt failed");
+            match stream {
+                Ok(mut stream) => {
+                    let peer_addr = stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or("unknown".to_string());
+                    Self::add_log(&logs, &format!("🔗 Incoming TCP connection from {}", peer_addr));
+                    
+                    let mut buffer = [0; 65535];
+                    match stream.read(&mut buffer) {
+                        Ok(len) => {
+                            if len > 0 {
+                                Self::add_log(&logs, &format!("📥 Received {} bytes from {}", len, peer_addr));
+                                if let Ok(enc_data) = serde_json::from_slice::<Vec<u8>>(&buffer[..len]) {
+                                    match crypto.lock().unwrap().decrypt(&enc_data) {
+                                        Ok(content) => {
+                                            Self::add_log(&logs, &format!("🔓 DECRYPTED MSG from {}: '{}'", peer_addr, content));
+                                            let msg = Message {
+                                                id: Uuid::new_v4().to_string()[..8].to_string(),
+                                                sender_id: "remote".to_string(),
+                                                sender_name: "User@".to_string() + &peer_addr,
+                                                content,
+                                                timestamp: Local::now().format("%H:%M:%S").to_string(),
+                                            };
+                                            messages.lock().unwrap().push(msg);
+                                        },
+                                        Err(e) => Self::add_log(&logs, &format!("❌ Decryption failed from {}: {}", peer_addr, e)),
+                                    }
+                                } else {
+                                    Self::add_log(&logs, &format!("⚠️ Failed to parse JSON from {}", peer_addr));
+                                }
                             }
-                        }
+                        },
+                        Err(e) => Self::add_log(&logs, &format!("❌ Read error from {}: {}", peer_addr, e)),
                     }
+                },
+                Err(e) => Self::add_log(&logs, &format!("❌ Incoming connection failed: {}", e)),
+            }
+        }
+    }
+
+    fn audio_listener(
+        port: u16, 
+        _peers: Arc<Mutex<Vec<PeerInfo>>>, 
+        logs: Arc<Mutex<Vec<String>>>
+    ) {
+        let socket = Self::create_udp_socket(port);
+        Self::add_log(&logs, &format!("🎤 Audio Stream Listener started on UDP port {}", port));
+        let mut buf = [0u8; 4096];
+        let mut packet_count = 0;
+        
+        loop {
+            socket.set_read_timeout(Some(Duration::from_millis(500))).ok();
+            if let Ok((len, addr)) = socket.recv_from(&mut buf) {
+                packet_count += 1;
+                if packet_count % 10 == 0 {
+                     Self::add_log(&logs, &format!("🎵 Audio packet #{} from {}: {} bytes", packet_count, addr.ip(), len));
                 }
             }
         }
@@ -218,59 +265,91 @@ impl AppState {
     pub fn send_message(&self, content: String) -> Result<(), String> {
         let msg = Message {
             id: Uuid::new_v4().to_string()[..8].to_string(),
-            sender_id: self.my_id.clone(),
-            sender_name: self.my_name.clone(),
-            content: content.clone(),
-            timestamp: Local::now().format("%H:%M:%S").to_string(),
+            sender_id: self.my_id.clone(), sender_name: self.my_name.clone(),
+            content: content.clone(), timestamp: Local::now().format("%H:%M:%S").to_string(),
         };
-        
         self.messages.lock().unwrap().push(msg);
         
         let encrypted = self.crypto.lock().unwrap().encrypt(&content);
         let data = serde_json::to_string(&encrypted).unwrap();
         
-        Self::add_log(&self.logs, "Broadcasting message...");
+        Self::add_log(&self.logs, &format!("📤 Sending message '{}' (encrypted size: {} bytes)", content, data.len()));
 
         let peers = self.peers.lock().unwrap().clone();
         let mut sent_count = 0;
         
         for peer in &peers {
             let addr = format!("{}:{}", peer.ip, peer.port);
-            if let Ok(mut stream) = TcpStream::connect(&addr) {
-                if stream.write_all(data.as_bytes()).is_ok() {
-                    sent_count += 1;
-                }
+            match TcpStream::connect(&addr) {
+                Ok(mut stream) => {
+                    match stream.write_all(data.as_bytes()) {
+                        Ok(_) => {
+                            sent_count += 1;
+                            Self::add_log(&self.logs, &format!("✅ Sent to {} successfully", peer.name));
+                        },
+                        Err(e) => Self::add_log(&self.logs, &format!("❌ Write failed to {}: {}", peer.name, e)),
+                    }
+                },
+                Err(e) => Self::add_log(&self.logs, &format!("❌ Connect failed to {}: {}", peer.name, e)),
             }
         }
         
-        if sent_count == 0 && !peers.is_empty() {
-            Err("No peers responded".to_string())
+        if sent_count == 0 && !peers.is_empty() { 
+            Err("No peers responded".to_string()) 
+        } else if peers.is_empty() {
+            Self::add_log(&self.logs, "⚠️ No peers in list to send message");
+            Ok(())
         } else {
             Ok(())
+        }
+    }
+
+    pub fn send_audio(&self, ip: String, port: u16, data: Vec<u8>) -> Result<(), String> {
+        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+        let addr = format!("{}:{}", ip, port);
+        match socket.send_to(&data, &addr) {
+            Ok(_sent) => {
+                Ok(())
+            },
+            Err(e) => {
+                Self::add_log(&self.logs, &format!("❌ Audio send failed to {}: {}", ip, e));
+                Err(e.to_string())
+            }
         }
     }
 }
 
 #[tauri::command]
 fn get_peers(state: tauri::State<AppState>) -> Vec<PeerInfo> { state.get_peers() }
+
 #[tauri::command]
 fn get_messages(state: tauri::State<AppState>) -> Vec<Message> { state.get_messages() }
+
 #[tauri::command]
 fn get_logs(state: tauri::State<AppState>) -> Vec<String> { state.get_logs() }
+
 #[tauri::command]
-fn send_message(state: tauri::State<AppState>, content: String) -> Result<(), String> {
-    state.send_message(content)
+fn send_message(state: tauri::State<AppState>, content: String) -> Result<(), String> { 
+    state.send_message(content) 
 }
+
 #[tauri::command]
-fn get_my_id(state: tauri::State<AppState>) -> String { state.my_id.clone() }
+fn send_audio(state: tauri::State<AppState>, ip: String, port: u16, data: Vec<u8>) -> Result<(), String> { 
+    state.send_audio(ip, port, data) 
+}
+
+#[tauri::command]
+fn get_my_id(state: tauri::State<AppState>) -> String { 
+    state.my_id.clone() 
+}
 
 fn main() {
     let state = AppState::new();
-    println!("DCS Global Chat Started. ID: {}", state.my_id);
+    println!("DCS Glass OS Started. ID: {}", state.my_id);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(state)
-        .invoke_handler(tauri::generate_handler![get_peers, get_messages, send_message, get_my_id, get_logs])
+        .invoke_handler(tauri::generate_handler![get_peers, get_messages, send_message, get_my_id, get_logs, send_audio])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
