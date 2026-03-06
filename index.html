@@ -3,72 +3,363 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DCS Global Chat</title>
+    <title>DCS Glass Chat</title>
     <style>
-        body { font-family: 'Segoe UI', monospace; background: #1e1e1e; color: #eee; margin: 0; padding: 10px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: #2d2d2d; padding: 10px; border-radius: 6px; border: 1px solid #444; }
-        .my-id { font-size: 16px; font-weight: bold; color: #4caf50; }
-        
-        .container { display: flex; gap: 10px; flex: 1; overflow: hidden; }
-        
-        .panel { border: 1px solid #444; background: #252526; display: flex; flex-direction: column; border-radius: 6px; }
-        .peers { width: 250px; }
-        .chat { flex: 1; }
-        .logs { width: 300px; background: #111; border-color: #333; }
-        
-        .panel-header { padding: 8px 12px; background: #333; border-bottom: 1px solid #444; font-weight: bold; font-size: 14px; color: #ccc; }
-        .panel-content { flex: 1; overflow-y: auto; padding: 10px; font-size: 13px; }
-        
-        .peer-item { padding: 8px; background: #333; margin-bottom: 5px; border-radius: 4px; border-left: 3px solid #4caf50; }
-        .peer-name { font-weight: bold; color: #fff; }
-        .peer-ip { font-size: 11px; color: #aaa; }
-        
-        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 6px; max-width: 80%; word-wrap: break-word; }
-        .msg.sent { align-self: flex-end; background: #2b522f; border: 1px solid #4caf50; margin-left: auto; }
-        .msg.recv { align-self: flex-start; background: #333; border: 1px solid #555; }
-        .msg-meta { font-size: 11px; opacity: 0.6; margin-bottom: 4px; display: block; }
-        
-        .input-area { padding: 10px; background: #2d2d2d; border-top: 1px solid #444; display: flex; gap: 10px; }
-        input { flex: 1; background: #1e1e1e; border: 1px solid #444; color: white; padding: 10px; border-radius: 4px; outline: none; }
-        input:focus { border-color: #4caf50; }
-        button { background: #4caf50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        button:hover { background: #45a049; }
-        button.refresh { background: #d97706; }
-        
-        .log-line { margin-bottom: 3px; font-size: 12px; border-bottom: 1px solid #222; padding-bottom: 2px; }
-        .log-info { color: #aaa; }
-        .log-success { color: #4caf50; }
-        .log-error { color: #f44336; }
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --text-main: #ffffff;
+            --text-muted: #a0a0a0;
+            --msg-sent: rgba(118, 75, 162, 0.6);
+            --msg-recv: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #0f0c29;
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* --- Liquid Background Animation --- */
+        .liquid-bg {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #0f0c29, #302b63, #24243e);
+        }
+
+        .blob {
+            position: absolute;
+            filter: blur(80px);
+            opacity: 0.6;
+            animation: float 10s infinite ease-in-out alternate;
+            border-radius: 50%;
+        }
+
+        .blob-1 {
+            top: -10%; left: -10%; width: 50vw; height: 50vw;
+            background: #764ba2;
+            animation-delay: 0s;
+        }
+
+        .blob-2 {
+            bottom: -10%; right: -10%; width: 60vw; height: 60vw;
+            background: #667eea;
+            animation-delay: -5s;
+        }
+
+        .blob-3 {
+            top: 40%; left: 40%; width: 40vw; height: 40vw;
+            background: #ff0077;
+            opacity: 0.3;
+            animation-duration: 15s;
+        }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        /* --- Glass Container --- */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            padding: 20px;
+            gap: 20px;
+            z-index: 1;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 25px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            box-shadow: var(--glass-shadow);
+        }
+
+        .my-id {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .my-id span { color: #00d2ff; }
+
+        .btn-refresh {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(4px);
+        }
+        .btn-refresh:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        /* --- Main Layout --- */
+        .main-content {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            box-shadow: var(--glass-shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: transform 0.3s ease;
+        }
+
+        .panel-peers { width: 280px; flex-shrink: 0; }
+        .panel-chat { flex: 1; }
+        .panel-logs { width: 320px; flex-shrink: 0; }
+
+        .panel-header {
+            padding: 15px 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--glass-border);
+            font-weight: 700;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        /* Scrollbar styling */
+        .panel-content::-webkit-scrollbar { width: 6px; }
+        .panel-content::-webkit-scrollbar-track { background: transparent; }
+        .panel-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+        .panel-content::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        /* --- Peers List --- */
+        .peer-item {
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid transparent;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            animation: slideIn 0.3s ease-out;
+        }
+        .peer-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateX(5px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        .peer-name { font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .peer-ip { font-size: 12px; color: var(--text-muted); font-family: monospace; }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- Chat Area --- */
+        .messages-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-bottom: 20px;
+        }
+
+        .msg {
+            max-width: 75%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            position: relative;
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .msg.sent {
+            align-self: flex-end;
+            background: var(--msg-sent);
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
+        }
+
+        .msg.recv {
+            align-self: flex-start;
+            background: var(--msg-recv);
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 4px;
+            display: block;
+            font-weight: 600;
+        }
+        .msg-content { line-height: 1.4; word-wrap: break-word; }
+
+        @keyframes popIn {
+            from { opacity: 0; transform: scale(0.8) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .input-area {
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            gap: 12px;
+        }
+
+        input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            color: white;
+            padding: 12px 18px;
+            border-radius: 14px;
+            outline: none;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        input:focus {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-send {
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+            padding: 0 24px;
+            border-radius: 14px;
+            cursor: pointer;
+            font-weight: 700;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
+        }
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(118, 75, 162, 0.6);
+        }
+        .btn-send:active { transform: translateY(0); }
+
+        /* --- Logs --- */
+        .log-line {
+            font-size: 12px;
+            margin-bottom: 6px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: rgba(0,0,0,0.2);
+            border-left: 3px solid transparent;
+            animation: fadeIn 0.3s ease;
+        }
+        .log-info { color: #ccc; border-color: #666; }
+        .log-success { color: #00ff9d; border-color: #00ff9d; background: rgba(0, 255, 157, 0.05); }
+        .log-error { color: #ff4b4b; border-color: #ff4b4b; background: rgba(255, 75, 75, 0.05); }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Responsive */
+        @media (max-width: 1000px) {
+            .panel-logs { display: none; }
+            .panel-peers { width: 220px; }
+        }
+        @media (max-width: 768px) {
+            .main-content { flex-direction: column; }
+            .panel-peers { width: 100%; height: 200px; }
+            .panel-chat { height: 100%; }
+            .panel-logs { display: none; }
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="my-id">ID: <span id="my-id">...</span></div>
-        <button class="refresh" onclick="forceRefresh()">🔄 Обновить</button>
+
+    <!-- Живой фон -->
+    <div class="liquid-bg">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
     </div>
 
-    <div class="container">
-        <div class="panel peers">
-            <div class="panel-header">В сети (<span id="peer-count">0</span>)</div>
-            <div class="panel-content" id="peers-list">
-                <div style="color:#666; text-align:center;">Поиск...</div>
-            </div>
+    <div class="app-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="my-id">ID: <span id="my-id">...</span></div>
+            <button class="btn-refresh" onclick="forceRefresh()">🔄 Обновить</button>
         </div>
 
-        <div class="panel chat">
-            <div class="panel-header">🌐 Общий чат</div>
-            <div class="panel-content" id="messages-container" style="display: flex; flex-direction: column;">
-                <div style="color:#666; text-align:center; margin-top:50px;">Сообщений пока нет</div>
+        <!-- Main Content -->
+        <div class="main-content">
+            
+            <!-- Peers Panel -->
+            <div class="panel panel-peers">
+                <div class="panel-header">
+                    <span>В сети</span>
+                    <span id="peer-count" style="background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:10px; font-size:12px;">0</span>
+                </div>
+                <div class="panel-content" id="peers-list">
+                    <div style="color:var(--text-muted); text-align:center; margin-top:30px;">Поиск устройств...</div>
+                </div>
             </div>
-            <div class="input-area">
-                <input type="text" id="msg-input" placeholder="Сообщение для всех..." />
-                <button id="send-btn">Send</button>
-            </div>
-        </div>
 
-        <div class="panel logs">
-            <div class="panel-header">Debug Logs</div>
-            <div class="panel-content" id="logs-container"></div>
+            <!-- Chat Panel -->
+            <div class="panel panel-chat">
+                <div class="panel-header">🌐 Общий чат</div>
+                <div class="panel-content" id="messages-container">
+                    <div style="color:var(--text-muted); text-align:center; margin-top:50px; opacity:0.6;">
+                        Сообщений пока нет.<br>Напиши что-нибудь!
+                    </div>
+                </div>
+                <div class="input-area">
+                    <input type="text" id="msg-input" placeholder="Сообщение для всех..." autocomplete="off" />
+                    <button class="btn-send" id="send-btn">Send</button>
+                </div>
+            </div>
+
+            <!-- Logs Panel -->
+            <div class="panel panel-logs">
+                <div class="panel-header">System Logs</div>
+                <div class="panel-content" id="logs-container"></div>
+            </div>
+
         </div>
     </div>
 
@@ -97,14 +388,18 @@
             countSpan.innerText = peers.length;
 
             if (peers.length === 0) {
-                list.innerHTML = '<div style="color:#666; text-align:center; margin-top:20px;">Нет устройств</div>';
+                list.innerHTML = '<div style="color:var(--text-muted); text-align:center; margin-top:30px; opacity:0.6;">Нет устройств<br><small>(Проверь сеть)</small></div>';
                 return;
             }
 
-            peers.forEach(p => {
+            peers.forEach((p, index) => {
                 const div = document.createElement('div');
                 div.className = 'peer-item';
-                div.innerHTML = `<div class="peer-name">${p.name}</div><div class="peer-ip">${p.ip}:${p.port}</div>`;
+                div.style.animationDelay = `${index * 0.05}s`; // Каскадная анимация
+                div.innerHTML = `
+                    <div class="peer-name">${p.name}</div>
+                    <div class="peer-ip">${p.ip}:${p.port}</div>
+                `;
                 list.appendChild(div);
             });
         }
@@ -116,22 +411,23 @@
             container.innerHTML = '';
             
             if (msgs.length === 0) {
-                container.innerHTML = '<div style="color:#666; text-align:center; margin-top:50px;">Чат пуст</div>';
+                container.innerHTML = '<div style="color:var(--text-muted); text-align:center; margin-top:50px; opacity:0.6;">Чат пуст</div>';
                 return;
             }
 
             const myIdShort = document.getElementById('my-id').innerText.replace('User_', '');
 
-            msgs.forEach(m => {
+            msgs.forEach((m, index) => {
                 const div = document.createElement('div');
                 const isMe = m.sender_id.includes(myIdShort);
                 
                 div.className = `msg ${isMe ? 'sent' : 'recv'}`;
+                div.style.animationDelay = `${index * 0.03}s`; // Каскад для сообщений
                 
                 const sender = isMe ? 'Вы' : m.sender_name;
                 div.innerHTML = `
                     <span class="msg-meta">${sender} • ${m.timestamp}</span>
-                    <div>${m.content}</div>
+                    <div class="msg-content">${m.content}</div>
                 `;
                 container.appendChild(div);
             });
@@ -143,16 +439,15 @@
             const logs = await invoke('get_logs');
             const container = document.getElementById('logs-container');
             container.innerHTML = '';
-            logs.forEach(line => {
+            logs.slice().reverse().forEach(line => { // Новые сверху
                 const div = document.createElement('div');
                 div.className = 'log-line';
-                if(line.includes('✅')) div.classList.add('log-success');
-                else if(line.includes('❌')) div.classList.add('log-error');
+                if(line.includes('✅') || line.includes('Found')) div.classList.add('log-success');
+                else if(line.includes('❌') || line.includes('Error')) div.classList.add('log-error');
                 else div.classList.add('log-info');
                 div.textContent = line;
                 container.appendChild(div);
             });
-            container.scrollTop = container.scrollHeight;
         }
 
         async function sendMessage() {
@@ -165,7 +460,7 @@
                 input.value = '';
                 await loadMessages();
             } catch (e) {
-                alert('Ошибка отправки: ' + e);
+                alert('Ошибка: ' + e);
             }
         }
 
