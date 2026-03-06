@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DCS Global Chat</title>
+    <style>
+        body { font-family: 'Segoe UI', monospace; background: #1e1e1e; color: #eee; margin: 0; padding: 10px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: #2d2d2d; padding: 10px; border-radius: 6px; border: 1px solid #444; }
+        .my-id { font-size: 16px; font-weight: bold; color: #4caf50; }
+        
+        .container { display: flex; gap: 10px; flex: 1; overflow: hidden; }
+        
+        .panel { border: 1px solid #444; background: #252526; display: flex; flex-direction: column; border-radius: 6px; }
+        .peers { width: 250px; }
+        .chat { flex: 1; }
+        .logs { width: 300px; background: #111; border-color: #333; }
+        
+        .panel-header { padding: 8px 12px; background: #333; border-bottom: 1px solid #444; font-weight: bold; font-size: 14px; color: #ccc; }
+        .panel-content { flex: 1; overflow-y: auto; padding: 10px; font-size: 13px; }
+        
+        .peer-item { padding: 8px; background: #333; margin-bottom: 5px; border-radius: 4px; border-left: 3px solid #4caf50; }
+        .peer-name { font-weight: bold; color: #fff; }
+        .peer-ip { font-size: 11px; color: #aaa; }
+        
+        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 6px; max-width: 80%; word-wrap: break-word; }
+        .msg.sent { align-self: flex-end; background: #2b522f; border: 1px solid #4caf50; margin-left: auto; }
+        .msg.recv { align-self: flex-start; background: #333; border: 1px solid #555; }
+        .msg-meta { font-size: 11px; opacity: 0.6; margin-bottom: 4px; display: block; }
+        
+        .input-area { padding: 10px; background: #2d2d2d; border-top: 1px solid #444; display: flex; gap: 10px; }
+        input { flex: 1; background: #1e1e1e; border: 1px solid #444; color: white; padding: 10px; border-radius: 4px; outline: none; }
+        input:focus { border-color: #4caf50; }
+        button { background: #4caf50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #45a049; }
+        button.refresh { background: #d97706; }
+        
+        .log-line { margin-bottom: 3px; font-size: 12px; border-bottom: 1px solid #222; padding-bottom: 2px; }
+        .log-info { color: #aaa; }
+        .log-success { color: #4caf50; }
+        .log-error { color: #f44336; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="my-id">ID: <span id="my-id">...</span></div>
+        <button class="refresh" onclick="forceRefresh()">🔄 Обновить</button>
+    </div>
+
+    <div class="container">
+        <div class="panel peers">
+            <div class="panel-header">В сети (<span id="peer-count">0</span>)</div>
+            <div class="panel-content" id="peers-list">
+                <div style="color:#666; text-align:center;">Поиск...</div>
+            </div>
+        </div>
+
+        <div class="panel chat">
+            <div class="panel-header">🌐 Общий чат</div>
+            <div class="panel-content" id="messages-container" style="display: flex; flex-direction: column;">
+                <div style="color:#666; text-align:center; margin-top:50px;">Сообщений пока нет</div>
+            </div>
+            <div class="input-area">
+                <input type="text" id="msg-input" placeholder="Сообщение для всех..." />
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
+
+        <div class="panel logs">
+            <div class="panel-header">Debug Logs</div>
+            <div class="panel-content" id="logs-container"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { invoke } from "@tauri-apps/api/core";
+
+        async function init() {
+            const id = await invoke('get_my_id');
+            document.getElementById('my-id').innerText = id;
+            forceRefresh();
+            setInterval(forceRefresh, 3000);
+            loadLogs();
+            setInterval(loadLogs, 1000);
+        }
+
+        async function forceRefresh() {
+            await loadPeers();
+            await loadMessages();
+        }
+
+        async function loadPeers() {
+            const peers = await invoke('get_peers');
+            const list = document.getElementById('peers-list');
+            const countSpan = document.getElementById('peer-count');
+            list.innerHTML = '';
+            countSpan.innerText = peers.length;
+
+            if (peers.length === 0) {
+                list.innerHTML = '<div style="color:#666; text-align:center; margin-top:20px;">Нет устройств</div>';
+                return;
+            }
+
+            peers.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'peer-item';
+                div.innerHTML = `<div class="peer-name">${p.name}</div><div class="peer-ip">${p.ip}:${p.port}</div>`;
+                list.appendChild(div);
+            });
+        }
+
+        async function loadMessages() {
+            const msgs = await invoke('get_messages');
+            const container = document.getElementById('messages-container');
+            
+            container.innerHTML = '';
+            
+            if (msgs.length === 0) {
+                container.innerHTML = '<div style="color:#666; text-align:center; margin-top:50px;">Чат пуст</div>';
+                return;
+            }
+
+            const myIdShort = document.getElementById('my-id').innerText.replace('User_', '');
+
+            msgs.forEach(m => {
+                const div = document.createElement('div');
+                const isMe = m.sender_id.includes(myIdShort);
+                
+                div.className = `msg ${isMe ? 'sent' : 'recv'}`;
+                
+                const sender = isMe ? 'Вы' : m.sender_name;
+                div.innerHTML = `
+                    <span class="msg-meta">${sender} • ${m.timestamp}</span>
+                    <div>${m.content}</div>
+                `;
+                container.appendChild(div);
+            });
+            
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function loadLogs() {
+            const logs = await invoke('get_logs');
+            const container = document.getElementById('logs-container');
+            container.innerHTML = '';
+            logs.forEach(line => {
+                const div = document.createElement('div');
+                div.className = 'log-line';
+                if(line.includes('✅')) div.classList.add('log-success');
+                else if(line.includes('❌')) div.classList.add('log-error');
+                else div.classList.add('log-info');
+                div.textContent = line;
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('msg-input');
+            const content = input.value.trim();
+            if (!content) return;
+
+            try {
+                await invoke('send_message', { content });
+                input.value = '';
+                await loadMessages();
+            } catch (e) {
+                alert('Ошибка отправки: ' + e);
+            }
+        }
+
+        document.getElementById('send-btn').onclick = sendMessage;
+        document.getElementById('msg-input').onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+
+        init();
+    </script>
+</body>
+</html>
